@@ -9,6 +9,7 @@ class RecordingManager {
     private var recordingURL: URL?
     private var isRecording = false
     private var currentModelName: String = ""
+    private var isInitializing = false
 
     init() {
         Task {
@@ -22,6 +23,14 @@ class RecordingManager {
     }
 
     private func initializeWhisper() async {
+        // 防止重复初始化
+        guard !isInitializing else {
+            print(">>> WhisperKit 正在初始化中，跳过重复调用")
+            return
+        }
+        isInitializing = true
+        defer { isInitializing = false }
+
         let modelName = getSelectedModelName()
         currentModelName = modelName
         let modelFolder = FileManager.default.homeDirectoryForCurrentUser
@@ -214,8 +223,14 @@ class RecordingManager {
     }
 
     private func transcribe(audioURL: URL) async -> String? {
+        // 如果模型正在初始化，等待完成
+        while isInitializing {
+            print(">>> 等待模型初始化完成...")
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5秒
+        }
+
         guard let whisper = whisperKit else {
-            print("WhisperKit 未初始化")
+            print("WhisperKit 未初始化，当前选择的模型可能未下载")
             return nil
         }
 
@@ -247,7 +262,7 @@ class RecordingManager {
     /// 检查是否需要重新加载模型（如果用户切换了模型设置）
     func reloadModelIfNeeded() {
         let selectedModel = getSelectedModelName()
-        if selectedModel != currentModelName {
+        if selectedModel != currentModelName && !isInitializing {
             print("检测到模型设置变更: \(currentModelName) -> \(selectedModel)")
             whisperKit = nil
             Task {
