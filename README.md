@@ -35,16 +35,17 @@
 | 🌐 **Multilingual** | Native support for Chinese-English mixed input |
 | ⚡ **Fast & Lightweight** | Menu bar app with minimal resource usage |
 | 🎯 **Universal Input** | Works in any app - just position your cursor and speak |
+| 💻 **Universal Binary** | **Runs natively on both Apple Silicon (M1/M2/M3/M4) and Intel Macs - one app, all Macs** |
 
 ## 🖥️ System Requirements
 
 | Requirement | Specification |
 |-------------|---------------|
 | **OS** | macOS 14.0 (Sonoma) or later |
-| **Chip** | Apple Silicon (M1/M2/M3/M4) or Intel |
+| **Chip** | **Apple Silicon (M1/M2/M3/M4) or Intel - Universal Binary supported** |
 | **RAM** | 8GB+ recommended |
 
-> **Note**: Apple Silicon Macs will utilize the Neural Engine for faster inference.
+> **Note**: Apple Silicon Macs will utilize the Neural Engine for faster inference. Intel Macs use CPU-based inference with full functionality.
 
 ## 📦 Installation
 
