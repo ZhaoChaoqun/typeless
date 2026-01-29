@@ -1,26 +1,54 @@
 import SwiftUI
 import WhisperKit
 
+/// 语音识别引擎类型
+enum SpeechEngine: String, CaseIterable {
+    case funasr = "FunASR"
+    case whisper = "Whisper"
+
+    var displayName: String {
+        switch self {
+        case .funasr: return "FunASR (阿里达摩院)"
+        case .whisper: return "Whisper (OpenAI)"
+        }
+    }
+}
+
 /// 模型信息
-struct WhisperModel: Identifiable {
+struct SpeechModel: Identifiable {
     let id: String
     let name: String
     let displayName: String
     let description: String
     let size: String
+    let engine: SpeechEngine
 }
+
+/// 旧的 WhisperModel 类型别名，保持兼容
+typealias WhisperModel = SpeechModel
 
 /// 模型下载管理器
 class ModelDownloadManager: ObservableObject {
     static let shared = ModelDownloadManager()
 
-    /// 所有可用模型
-    let availableModels: [WhisperModel] = [
-        WhisperModel(id: "tiny", name: "tiny", displayName: "Tiny", description: "最快速度，适合简单短句", size: "~40MB"),
-        WhisperModel(id: "base", name: "base", displayName: "Base", description: "推荐日常使用，速度与准确性平衡", size: "~140MB"),
-        WhisperModel(id: "small", name: "small", displayName: "Small", description: "更高准确性，速度稍慢", size: "~460MB"),
-        WhisperModel(id: "large-v3_turbo", name: "large-v3_turbo", displayName: "Large V3 Turbo", description: "最高准确性，中英混合识别最佳", size: "~1.5GB")
+    /// FunASR 模型
+    let funasrModels: [SpeechModel] = [
+        SpeechModel(id: "paraformer", name: "paraformer-zh", displayName: "Paraformer", description: "推荐使用，中文识别效果最佳", size: "~220MB", engine: .funasr),
+        SpeechModel(id: "sensevoice-small", name: "SenseVoiceSmall", displayName: "SenseVoice Small", description: "多语言支持，情感识别", size: "~450MB", engine: .funasr)
     ]
+
+    /// Whisper 模型
+    let whisperModels: [SpeechModel] = [
+        SpeechModel(id: "tiny", name: "tiny", displayName: "Tiny", description: "最快速度，适合简单短句", size: "~40MB", engine: .whisper),
+        SpeechModel(id: "base", name: "base", displayName: "Base", description: "速度与准确性平衡", size: "~140MB", engine: .whisper),
+        SpeechModel(id: "small", name: "small", displayName: "Small", description: "更高准确性，速度稍慢", size: "~460MB", engine: .whisper),
+        SpeechModel(id: "large-v3_turbo", name: "large-v3_turbo", displayName: "Large V3 Turbo", description: "最高准确性，中英混合识别最佳", size: "~1.5GB", engine: .whisper)
+    ]
+
+    /// 所有可用模型
+    var availableModels: [SpeechModel] {
+        return funasrModels + whisperModels
+    }
 
     /// 各模型的下载状态
     @Published var downloadedModels: Set<String> = []
@@ -34,16 +62,29 @@ class ModelDownloadManager: ObservableObject {
     }
 
     /// 获取模型文件夹路径
-    private func modelFolder(for modelName: String) -> URL {
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\(modelName)")
+    private func modelFolder(for model: SpeechModel) -> URL {
+        if model.engine == .funasr {
+            return SherpaOnnxManager.shared.getModelDirectory(for: model.id)
+        } else {
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\(model.name)")
+        }
     }
 
     /// 检查所有模型是否已下载
     func checkAllModelsExist() {
         var downloaded = Set<String>()
-        for model in availableModels {
-            let folder = modelFolder(for: model.name)
+
+        // 检查 FunASR 模型
+        for model in funasrModels {
+            if SherpaOnnxManager.shared.isModelDownloaded(model.id) {
+                downloaded.insert(model.id)
+            }
+        }
+
+        // 检查 Whisper 模型
+        for model in whisperModels {
+            let folder = modelFolder(for: model)
             let configPath = folder.appendingPathComponent("config.json")
             if FileManager.default.fileExists(atPath: configPath.path) {
                 downloaded.insert(model.id)
@@ -70,27 +111,46 @@ class ModelDownloadManager: ObservableObject {
         downloadingModel = modelId
         downloadProgress = "正在下载 \(model.displayName) 模型..."
 
-        Task {
-            do {
-                // 使用 WhisperKit 下载模型
-                let _ = try await WhisperKit(
-                    model: model.name,
-                    verbose: true,
-                    logLevel: .debug,
-                    prewarm: false,
-                    load: false,  // 只下载，不加载
-                    download: true
-                )
-
-                await MainActor.run {
-                    self.downloadedModels.insert(modelId)
-                    self.downloadingModel = nil
-                    self.downloadProgress = "下载完成"
+        if model.engine == .funasr {
+            // 使用 Sherpa-ONNX 下载 FunASR 模型
+            SherpaOnnxManager.shared.downloadModel(modelId, progress: { [weak self] progressText in
+                DispatchQueue.main.async {
+                    self?.downloadProgress = progressText
                 }
-            } catch {
-                await MainActor.run {
-                    self.downloadingModel = nil
-                    self.downloadProgress = "下载失败: \(error.localizedDescription)"
+            }, completion: { [weak self] success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        self?.downloadedModels.insert(modelId)
+                        self?.downloadProgress = "下载完成"
+                    } else {
+                        self?.downloadProgress = error ?? "下载失败"
+                    }
+                    self?.downloadingModel = nil
+                }
+            })
+        } else {
+            // 使用 WhisperKit 下载 Whisper 模型
+            Task {
+                do {
+                    let _ = try await WhisperKit(
+                        model: model.name,
+                        verbose: true,
+                        logLevel: .debug,
+                        prewarm: false,
+                        load: false,
+                        download: true
+                    )
+
+                    await MainActor.run {
+                        self.downloadedModels.insert(modelId)
+                        self.downloadingModel = nil
+                        self.downloadProgress = "下载完成"
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.downloadingModel = nil
+                        self.downloadProgress = "下载失败: \(error.localizedDescription)"
+                    }
                 }
             }
         }
@@ -162,7 +222,7 @@ struct ModelRowView: View {
 /// 设置视图
 struct SettingsView: View {
     @AppStorage("triggerKey") private var triggerKey = "fn"
-    @AppStorage("modelSize") private var modelSize = "base"
+    @AppStorage("modelSize") private var modelSize = "paraformer"
     @StateObject private var downloadManager = ModelDownloadManager.shared
 
     init() {
@@ -173,7 +233,7 @@ struct SettingsView: View {
         let _ = print(">>> SettingsView body 被计算")
         Form {
             Section {
-                ForEach(downloadManager.availableModels) { model in
+                ForEach(downloadManager.funasrModels) { model in
                     ModelRowView(
                         model: model,
                         isDownloaded: downloadManager.isModelDownloaded(model.id),
@@ -187,14 +247,33 @@ struct SettingsView: View {
                             modelSize = model.id
                         }
                     )
-                    if model.id != downloadManager.availableModels.last?.id {
-                        Divider()
-                    }
                 }
             } header: {
-                Text("Whisper 模型")
+                Text("FunASR 模型（阿里达摩院）")
             } footer: {
-                Text("更大的模型识别更准确，但下载和加载速度更慢。首次使用需要先下载模型。")
+                Text("FunASR 模型针对中文优化，识别速度快、准确率高。")
+            }
+
+            Section {
+                ForEach(downloadManager.whisperModels) { model in
+                    ModelRowView(
+                        model: model,
+                        isDownloaded: downloadManager.isModelDownloaded(model.id),
+                        isDownloading: downloadManager.isDownloading(model.id),
+                        isSelected: modelSize == model.id,
+                        downloadProgress: downloadManager.downloadProgress,
+                        onDownload: {
+                            downloadManager.downloadModel(model.id)
+                        },
+                        onSelect: {
+                            modelSize = model.id
+                        }
+                    )
+                }
+            } header: {
+                Text("Whisper 模型（OpenAI）")
+            } footer: {
+                Text("Whisper 模型支持多语言，更大的模型识别更准确，但下载和加载速度更慢。")
             }
 
             Section("快捷键") {
@@ -204,7 +283,7 @@ struct SettingsView: View {
 
             Section("关于") {
                 LabeledContent("版本", value: "1.0.0")
-                LabeledContent("作者", value: "Typeless Team")
+                LabeledContent("作者", value: "赵超群（Zhao Chaoqun）")
             }
 
             Section {
@@ -217,7 +296,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 500)
+        .frame(width: 400, height: 550)
     }
 }
 
