@@ -2,54 +2,84 @@ import Foundation
 import AVFoundation
 import WhisperKit
 
+/// 语音识别引擎类型
+enum RecognitionEngine {
+    case whisper
+    case paraformer
+    case sensevoice
+}
+
 /// 管理音频录制和语音识别
 class RecordingManager {
     private var audioRecorder: AVAudioRecorder?
     private var whisperKit: WhisperKit?
+    private var sherpaRecognizer: SherpaOnnxRecognizer?
     private var recordingURL: URL?
     private var isRecording = false
-    private var currentModelName: String = ""
+    private var currentModelId: String = ""
     private var isInitializing = false
 
     init() {
         Task {
-            await initializeWhisper()
+            await initializeRecognizer()
         }
     }
 
-    private func getSelectedModelName() -> String {
-        // 从 UserDefaults 读取模型设置，默认为 "base"
-        return UserDefaults.standard.string(forKey: "modelSize") ?? "base"
+    private func getSelectedModelId() -> String {
+        // 从 UserDefaults 读取模型设置，默认为 "paraformer"
+        return UserDefaults.standard.string(forKey: "modelSize") ?? "paraformer"
     }
 
-    private func initializeWhisper() async {
+    private func getEngineType(for modelId: String) -> RecognitionEngine {
+        switch modelId {
+        case "paraformer":
+            return .paraformer
+        case "sensevoice-small":
+            return .sensevoice
+        default:
+            return .whisper
+        }
+    }
+
+    private func initializeRecognizer() async {
         // 防止重复初始化
         guard !isInitializing else {
-            print(">>> WhisperKit 正在初始化中，跳过重复调用")
+            print(">>> 识别器正在初始化中，跳过重复调用")
             return
         }
         isInitializing = true
         defer { isInitializing = false }
 
-        let modelName = getSelectedModelName()
-        currentModelName = modelName
+        let modelId = getSelectedModelId()
+        currentModelId = modelId
+        let engine = getEngineType(for: modelId)
+
+        print("========== 开始加载语音识别模型 ==========")
+        print("模型 ID: \(modelId)")
+        print("引擎类型: \(engine)")
+        print("开始时间: \(Date())")
+
+        switch engine {
+        case .whisper:
+            await initializeWhisper(modelName: modelId)
+        case .paraformer, .sensevoice:
+            await initializeSherpaOnnx(modelId: modelId)
+        }
+    }
+
+    private func initializeWhisper(modelName: String) async {
         let modelFolder = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\(modelName)")
 
-        print("========== 开始加载 WhisperKit 模型 ==========")
-        print("模型名称: \(modelName)")
-        print("开始时间: \(Date())")
-
         // 检查模型完整性
-        let isModelComplete = checkModelIntegrity(at: modelFolder)
+        let isModelComplete = checkWhisperModelIntegrity(at: modelFolder)
         if !isModelComplete {
-            print("⚠️ 检测到模型不完整或不存在，将删除并重新下载...")
+            print("⚠️ 检测到 Whisper 模型不完整或不存在，将删除并重新下载...")
             try? FileManager.default.removeItem(at: modelFolder)
-            // 同时清理缓存
             let cacheFolder = modelFolder.deletingLastPathComponent().appendingPathComponent(".cache")
             try? FileManager.default.removeItem(at: cacheFolder)
         } else {
-            print("✓ 模型文件完整性检查通过")
+            print("✓ Whisper 模型文件完整性检查通过")
         }
 
         print("提示: 首次下载模型可能需要几分钟，请耐心等待...")
@@ -67,8 +97,7 @@ class RecordingManager {
             print("========== WhisperKit 初始化成功 ==========")
             print("完成时间: \(Date())")
 
-            // 预热模型
-            await warmupModel()
+            await warmupWhisperModel()
         } catch {
             print("========== WhisperKit 初始化失败 ==========")
             print("失败时间: \(Date())")
@@ -76,15 +105,69 @@ class RecordingManager {
             print("错误信息: \(error)")
             print("错误详情: \(error.localizedDescription)")
 
-            // 如果加载失败，尝试删除模型并提示用户重启
             print(">>> 正在清理可能损坏的模型文件...")
             try? FileManager.default.removeItem(at: modelFolder)
             print(">>> 模型已清理，请重启应用以重新下载模型")
         }
     }
 
-    /// 检查模型文件完整性
-    private func checkModelIntegrity(at modelFolder: URL) -> Bool {
+    private func initializeSherpaOnnx(modelId: String) async {
+        print(">>> Sherpa-ONNX 引擎初始化 (模型: \(modelId))")
+
+        // 检查模型是否已下载
+        guard SherpaOnnxManager.shared.isModelDownloaded(modelId) else {
+            print("⚠️ \(modelId) 模型未下载，请在设置中下载")
+            return
+        }
+
+        print("✓ \(modelId) 模型已下载")
+
+        // 获取模型路径
+        let modelType: SherpaOnnxRecognizer.ModelType
+        let modelPath: String
+        let tokensPath: String
+
+        switch modelId {
+        case "paraformer":
+            modelType = .paraformer
+            if let model = SherpaOnnxManager.shared.getParaformerModelPath() {
+                modelPath = model.modelPath
+                tokensPath = model.tokensPath
+            } else {
+                print(">>> 无法获取 Paraformer 模型路径")
+                return
+            }
+        case "sensevoice-small":
+            modelType = .sensevoice
+            if let model = SherpaOnnxManager.shared.getSenseVoiceModelPath() {
+                modelPath = model.modelPath
+                tokensPath = model.tokensPath
+            } else {
+                print(">>> 无法获取 SenseVoice 模型路径")
+                return
+            }
+        default:
+            print(">>> 不支持的 Sherpa-ONNX 模型: \(modelId)")
+            return
+        }
+
+        // 创建识别器
+        sherpaRecognizer = SherpaOnnxRecognizer(
+            modelType: modelType,
+            modelPath: modelPath,
+            tokensPath: tokensPath
+        )
+
+        if sherpaRecognizer != nil {
+            print("========== Sherpa-ONNX 初始化成功 ==========")
+            print("完成时间: \(Date())")
+        } else {
+            print("========== Sherpa-ONNX 初始化失败 ==========")
+        }
+    }
+
+    /// 检查 Whisper 模型文件完整性
+    private func checkWhisperModelIntegrity(at modelFolder: URL) -> Bool {
         let fileManager = FileManager.default
 
         // 检查模型文件夹是否存在
@@ -138,7 +221,7 @@ class RecordingManager {
         return true
     }
 
-    private func warmupModel() async {
+    private func warmupWhisperModel() async {
         guard let whisper = whisperKit else { return }
 
         print("正在预热模型...")
@@ -229,6 +312,17 @@ class RecordingManager {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5秒
         }
 
+        let engine = getEngineType(for: currentModelId)
+
+        switch engine {
+        case .whisper:
+            return await transcribeWithWhisper(audioURL: audioURL)
+        case .paraformer, .sensevoice:
+            return await transcribeWithSherpaOnnx(audioURL: audioURL)
+        }
+    }
+
+    private func transcribeWithWhisper(audioURL: URL) async -> String? {
         guard let whisper = whisperKit else {
             print("WhisperKit 未初始化，当前选择的模型可能未下载")
             return nil
@@ -255,18 +349,39 @@ class RecordingManager {
         }
     }
 
+    private func transcribeWithSherpaOnnx(audioURL: URL) async -> String? {
+        guard let recognizer = sherpaRecognizer else {
+            print(">>> Sherpa-ONNX 识别器未初始化")
+            return nil
+        }
+
+        print(">>> 开始 Sherpa-ONNX 转录...")
+        let text = recognizer.transcribe(audioURL: audioURL)
+        if let text = text {
+            print("转录结果: \(text)")
+        }
+        return text
+    }
+
     var isInitialized: Bool {
-        whisperKit != nil
+        let engine = getEngineType(for: currentModelId)
+        switch engine {
+        case .whisper:
+            return whisperKit != nil
+        case .paraformer, .sensevoice:
+            return sherpaRecognizer != nil
+        }
     }
 
     /// 检查是否需要重新加载模型（如果用户切换了模型设置）
     func reloadModelIfNeeded() {
-        let selectedModel = getSelectedModelName()
-        if selectedModel != currentModelName && !isInitializing {
-            print("检测到模型设置变更: \(currentModelName) -> \(selectedModel)")
+        let selectedModel = getSelectedModelId()
+        if selectedModel != currentModelId && !isInitializing {
+            print("检测到模型设置变更: \(currentModelId) -> \(selectedModel)")
             whisperKit = nil
+            sherpaRecognizer = nil
             Task {
-                await initializeWhisper()
+                await initializeRecognizer()
             }
         }
     }
