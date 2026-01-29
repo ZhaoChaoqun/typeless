@@ -8,7 +8,7 @@ enum SpeechEngine: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .funasr: return "FunASR (阿里达摩院)"
+        case .funasr: return "FunASR (阿里)"
         case .whisper: return "Whisper (OpenAI)"
         }
     }
@@ -245,11 +245,12 @@ struct SettingsView: View {
                         },
                         onSelect: {
                             modelSize = model.id
+                            RecordingManager.shared.switchToModel(model.id)
                         }
                     )
                 }
             } header: {
-                Text("FunASR 模型（阿里达摩院）")
+                Text("FunASR 模型（阿里）")
             } footer: {
                 Text("FunASR 模型针对中文优化，识别速度快、准确率高。")
             }
@@ -267,6 +268,7 @@ struct SettingsView: View {
                         },
                         onSelect: {
                             modelSize = model.id
+                            RecordingManager.shared.switchToModel(model.id)
                         }
                     )
                 }

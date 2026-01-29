@@ -15,7 +15,6 @@ struct TypelessApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
-    var recordingManager: RecordingManager?
     var overlayWindow: OverlayWindowController?
     var keyMonitor: KeyMonitor?
     var settingsWindow: NSWindow?
@@ -27,8 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup status bar item
         setupStatusBar()
 
-        // Initialize managers
-        recordingManager = RecordingManager()
+        // Initialize managers - 使用单例，会自动开始加载模型
+        _ = RecordingManager.shared
         overlayWindow = OverlayWindowController()
 
         // Setup key monitoring
@@ -106,14 +105,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecording() {
         DispatchQueue.main.async {
             self.overlayWindow?.show()
-            self.recordingManager?.startRecording()
+            RecordingManager.shared.startRecording()
         }
     }
 
     private func stopRecordingAndTranscribe() {
         DispatchQueue.main.async {
             self.overlayWindow?.showProcessing()
-            self.recordingManager?.stopRecording { [weak self] text in
+            RecordingManager.shared.stopRecording { [weak self] text in
                 DispatchQueue.main.async {
                     self?.overlayWindow?.hide()
                     if let text = text, !text.isEmpty {

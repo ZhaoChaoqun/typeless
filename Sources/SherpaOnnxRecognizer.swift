@@ -158,7 +158,7 @@ class SherpaOnnxRecognizer {
         }
 
         // 解析 WAV 头
-        guard data.count > 44 else {
+        guard data.count > 12 else {
             print(">>> WAV 文件太小")
             return nil
         }
@@ -170,43 +170,74 @@ class SherpaOnnxRecognizer {
             return nil
         }
 
-        // 获取采样率 (偏移 24-27)
-        let sampleRate = data.withUnsafeBytes { ptr -> Int in
-            return Int(ptr.load(fromByteOffset: 24, as: UInt32.self))
+        // 检查 WAVE 标识
+        let wave = String(data: data[8..<12], encoding: .ascii)
+        guard wave == "WAVE" else {
+            print(">>> 不是有效的 WAVE 文件")
+            return nil
         }
 
-        // 获取位深度 (偏移 34-35)
-        let bitsPerSample = data.withUnsafeBytes { ptr -> Int in
-            return Int(ptr.load(fromByteOffset: 34, as: UInt16.self))
-        }
+        // 遍历 chunks 查找 fmt 和 data
+        var sampleRate: Int = 0
+        var bitsPerSample: Int = 0
+        var numChannels: Int = 0
+        var dataOffset: Int = 0
+        var dataSize: Int = 0
 
-        // 获取声道数 (偏移 22-23)
-        let numChannels = data.withUnsafeBytes { ptr -> Int in
-            return Int(ptr.load(fromByteOffset: 22, as: UInt16.self))
-        }
-
-        // 查找 data chunk
-        var dataOffset = 12
-        while dataOffset < data.count - 8 {
-            let chunkId = String(data: data[dataOffset..<dataOffset+4], encoding: .ascii)
+        var offset = 12 // 跳过 RIFF header
+        while offset < data.count - 8 {
+            let chunkId = String(data: data[offset..<offset+4], encoding: .ascii)
             let chunkSize = data.withUnsafeBytes { ptr -> Int in
-                return Int(ptr.load(fromByteOffset: dataOffset + 4, as: UInt32.self))
+                return Int(ptr.load(fromByteOffset: offset + 4, as: UInt32.self))
             }
 
-            if chunkId == "data" {
-                dataOffset += 8
+            if chunkId == "fmt " {
+                // fmt chunk: 包含音频格式信息
+                // offset + 8: audioFormat (2 bytes)
+                // offset + 10: numChannels (2 bytes)
+                // offset + 12: sampleRate (4 bytes)
+                // offset + 16: byteRate (4 bytes)
+                // offset + 20: blockAlign (2 bytes)
+                // offset + 22: bitsPerSample (2 bytes)
+                guard offset + 24 <= data.count else {
+                    print(">>> fmt chunk 不完整")
+                    return nil
+                }
+
+                numChannels = data.withUnsafeBytes { ptr -> Int in
+                    return Int(ptr.load(fromByteOffset: offset + 10, as: UInt16.self))
+                }
+                sampleRate = data.withUnsafeBytes { ptr -> Int in
+                    return Int(ptr.load(fromByteOffset: offset + 12, as: UInt32.self))
+                }
+                bitsPerSample = data.withUnsafeBytes { ptr -> Int in
+                    return Int(ptr.load(fromByteOffset: offset + 22, as: UInt16.self))
+                }
+
+                print(">>> WAV 格式: \(numChannels) 声道, \(sampleRate) Hz, \(bitsPerSample) bit")
+            } else if chunkId == "data" {
+                dataOffset = offset + 8
+                dataSize = chunkSize
                 break
             }
-            dataOffset += 8 + chunkSize
+
+            // 移动到下一个 chunk (chunk 大小需要按 2 字节对齐)
+            let paddedSize = (chunkSize + 1) & ~1
+            offset += 8 + paddedSize
         }
 
-        guard dataOffset < data.count else {
+        guard dataOffset > 0, dataSize > 0 else {
             print(">>> 找不到 data chunk")
             return nil
         }
 
+        guard sampleRate > 0, bitsPerSample > 0, numChannels > 0 else {
+            print(">>> 找不到 fmt chunk 或格式信息无效")
+            return nil
+        }
+
         // 读取音频数据
-        let audioData = data[dataOffset...]
+        let audioData = data[dataOffset..<min(dataOffset + dataSize, data.count)]
         var samples: [Float] = []
 
         if bitsPerSample == 16 {

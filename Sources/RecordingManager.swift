@@ -11,6 +11,9 @@ enum RecognitionEngine {
 
 /// 管理音频录制和语音识别
 class RecordingManager {
+    /// 单例实例
+    static let shared = RecordingManager()
+
     private var audioRecorder: AVAudioRecorder?
     private var whisperKit: WhisperKit?
     private var sherpaRecognizer: SherpaOnnxRecognizer?
@@ -20,6 +23,26 @@ class RecordingManager {
     private var isInitializing = false
 
     init() {
+        Task {
+            await initializeRecognizer()
+        }
+    }
+
+    /// 切换到指定模型并立即加载
+    /// - Parameter modelId: 模型 ID
+    func switchToModel(_ modelId: String) {
+        guard modelId != currentModelId else {
+            print(">>> 模型未变更，无需重新加载: \(modelId)")
+            return
+        }
+
+        print(">>> 切换模型: \(currentModelId) -> \(modelId)")
+
+        // 释放当前模型
+        whisperKit = nil
+        sherpaRecognizer = nil
+
+        // 立即加载新模型
         Task {
             await initializeRecognizer()
         }
