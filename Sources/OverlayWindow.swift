@@ -52,18 +52,22 @@ class OverlayWindowController {
     }
 
     func show() {
+        print(">>> OverlayWindow show() called")
         viewModel.state = .recording
         viewModel.startAnimation()
         positionWindow()
         window?.orderFront(nil)
+        print(">>> OverlayWindow window visible: \(window?.isVisible ?? false)")
     }
 
     func showProcessing() {
+        print(">>> OverlayWindow showProcessing() called")
         viewModel.state = .processing
         positionWindow()
     }
 
     func hide() {
+        print(">>> OverlayWindow hide() called")
         viewModel.stopAnimation()
         window?.orderOut(nil)
     }
