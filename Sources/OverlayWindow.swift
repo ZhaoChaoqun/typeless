@@ -17,7 +17,7 @@ class OverlayWindowController {
 
         // 创建一个无边框的悬浮窗口
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 120, height: 44),
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 36),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -103,34 +103,46 @@ struct OverlayView: View {
     @ObservedObject var viewModel: OverlayViewModel
 
     var body: some View {
-        HStack(spacing: 4) {
-            if viewModel.state == .recording {
-                // 录音动画 - 5个跳动的点
-                ForEach(0..<5, id: \.self) { index in
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 8, height: 8)
-                        .offset(y: waveOffset(for: index))
+        HStack(spacing: 12) {
+            // 左侧图标区域 - 固定宽度
+            Group {
+                if viewModel.state == .recording {
+                    // 录音动画 - 竖纹声波
+                    HStack(spacing: 3) {
+                        ForEach(0..<7, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(Color.white.opacity(0.9))
+                                .frame(width: 3, height: waveHeight(for: index))
+                        }
+                    }
+                } else {
+                    // 处理中 - 显示旋转指示器
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.7)
                 }
-            } else {
-                // 处理中 - 显示旋转指示器
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(0.8)
             }
+            .frame(width: 30, height: 18)
+
+            // 右侧文字区域 - 固定宽度确保一致
+            Text(viewModel.state == .recording ? "正在聆听..." : "识别中...")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 75, alignment: .leading)
         }
-        .frame(width: 80, height: 20) // 固定内容区域大小，防止切换时窗口跳动
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(
             Capsule()
-                .fill(Color.black.opacity(0.85))
+                .fill(Color.black.opacity(0.75))
         )
-        .animation(.easeInOut(duration: 0.15), value: viewModel.animationPhase)
+        .animation(.easeInOut(duration: 0.1), value: viewModel.animationPhase)
     }
 
-    private func waveOffset(for index: Int) -> CGFloat {
-        let phase = viewModel.animationPhase + CGFloat(index) * 0.5
-        return sin(phase) * 6
+    private func waveHeight(for index: Int) -> CGFloat {
+        let phase = viewModel.animationPhase + CGFloat(index) * 0.6
+        let baseHeight: CGFloat = 6
+        let amplitude: CGFloat = 10
+        return baseHeight + abs(sin(phase)) * amplitude
     }
 }
