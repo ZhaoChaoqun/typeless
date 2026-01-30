@@ -22,20 +22,30 @@ class SherpaOnnxRecognizer {
     init?(modelType: ModelType, modelPath: String, tokensPath: String) {
         self.modelType = modelType
 
-        guard FileManager.default.fileExists(atPath: modelPath),
-              FileManager.default.fileExists(atPath: tokensPath) else {
+        print(">>> SherpaOnnxRecognizer: 开始初始化...")
+        print("    模型类型: \(modelType)")
+        print("    模型路径: \(modelPath)")
+        print("    Tokens路径: \(tokensPath)")
+
+        let modelExists = FileManager.default.fileExists(atPath: modelPath)
+        let tokensExists = FileManager.default.fileExists(atPath: tokensPath)
+        print("    模型文件存在: \(modelExists)")
+        print("    Tokens文件存在: \(tokensExists)")
+
+        guard modelExists, tokensExists else {
             print(">>> SherpaOnnxRecognizer: 模型文件不存在")
-            print("    模型路径: \(modelPath)")
-            print("    Tokens路径: \(tokensPath)")
             return nil
         }
 
+        print(">>> SherpaOnnxRecognizer: 创建配置...")
         var config = createConfig(modelType: modelType, modelPath: modelPath, tokensPath: tokensPath)
 
+        print(">>> SherpaOnnxRecognizer: 调用 SherpaOnnxCreateOfflineRecognizer...")
         recognizer = SherpaOnnxCreateOfflineRecognizer(&config)
 
         if recognizer == nil {
-            print(">>> SherpaOnnxRecognizer: 创建识别器失败")
+            print(">>> SherpaOnnxRecognizer: 创建识别器失败 - SherpaOnnxCreateOfflineRecognizer 返回 nil")
+            print("    可能的原因: 模型文件损坏、ONNX Runtime 加载失败、配置错误")
             return nil
         }
 

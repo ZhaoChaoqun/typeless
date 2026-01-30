@@ -145,7 +145,10 @@ class RecordingManager {
         print(">>> Sherpa-ONNX 引擎初始化 (模型: \(modelId))")
 
         // 检查模型是否已下载
-        guard SherpaOnnxManager.shared.isModelDownloaded(modelId) else {
+        let isDownloaded = SherpaOnnxManager.shared.isModelDownloaded(modelId)
+        print(">>> 模型下载状态: \(isDownloaded)")
+
+        guard isDownloaded else {
             print("⚠️ \(modelId) 模型未下载，请在设置中下载")
             return
         }
@@ -163,6 +166,8 @@ class RecordingManager {
             if let model = SherpaOnnxManager.shared.getParaformerModelPath() {
                 modelPath = model.modelPath
                 tokensPath = model.tokensPath
+                print(">>> Paraformer 模型路径: \(modelPath)")
+                print(">>> Paraformer Tokens路径: \(tokensPath)")
             } else {
                 print(">>> 无法获取 Paraformer 模型路径")
                 return
@@ -172,6 +177,8 @@ class RecordingManager {
             if let model = SherpaOnnxManager.shared.getSenseVoiceModelPath() {
                 modelPath = model.modelPath
                 tokensPath = model.tokensPath
+                print(">>> SenseVoice 模型路径: \(modelPath)")
+                print(">>> SenseVoice Tokens路径: \(tokensPath)")
             } else {
                 print(">>> 无法获取 SenseVoice 模型路径")
                 return
@@ -182,6 +189,7 @@ class RecordingManager {
         }
 
         // 创建识别器
+        print(">>> 开始创建 SherpaOnnxRecognizer...")
         sherpaRecognizer = SherpaOnnxRecognizer(
             modelType: modelType,
             modelPath: modelPath,
@@ -193,6 +201,7 @@ class RecordingManager {
             print("完成时间: \(Date())")
         } else {
             print("========== Sherpa-ONNX 初始化失败 ==========")
+            print(">>> sherpaRecognizer 为 nil，检查上面的错误日志")
         }
     }
 

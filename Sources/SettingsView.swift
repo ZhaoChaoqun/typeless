@@ -249,7 +249,6 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        let _ = print(">>> SettingsView body 被计算")
         Form {
             Section {
                 ForEach(downloadManager.funasrModels) { model in
