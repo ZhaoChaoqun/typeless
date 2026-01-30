@@ -6,14 +6,14 @@
 
 <p align="center">
   <strong>按下即说，语音秒变文字</strong><br>
-  基于本地 Whisper AI 的 macOS 原生语音输入工具
+  基于本地 FunASR 的 macOS 原生语音输入工具
 </p>
 
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/platform-macOS%2014.0+-blue?logo=apple&logoColor=white" alt="Platform"></a>
   <a href="#"><img src="https://img.shields.io/badge/Swift-5.9-orange?logo=swift&logoColor=white" alt="Swift"></a>
   <a href="#"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
-  <a href="#"><img src="https://img.shields.io/badge/AI-WhisperKit-purple" alt="WhisperKit"></a>
+  <a href="#"><img src="https://img.shields.io/badge/AI-FunASR-purple" alt="FunASR"></a>
 </p>
 
 <p align="center">
@@ -39,8 +39,8 @@ https://github.com/user-attachments/assets/c99ec06a-e728-448b-9563-4a2872ebfef5
 | 功能 | 描述 |
 |------|------|
 | 🎤 **按键说话** | 按住 `Fn` 键录音，松开即转文字 |
-| 🔒 **完全本地** | Whisper 模型完全在本地运行，数据不出设备 |
-| 🌐 **中英混合** | 原生支持中英文混合输入 |
+| 🔒 **完全本地** | FunASR 模型完全在本地运行，数据不出设备 |
+| 🌐 **中英混合** | 原生支持中英文混合输入，方言识别更佳 |
 | ⚡ **快速轻量** | 菜单栏应用，资源占用极低 |
 | 🎯 **通用输入** | 任意应用可用 - 光标在哪，文字就输入到哪 |
 | 💻 **通用版本** | **同时支持 Apple Silicon (M1/M2/M3/M4) 和 Intel Mac** |
@@ -138,7 +138,7 @@ xcodebuild -project Typeless.xcodeproj -scheme Typeless build
 typeless/
 ├── Sources/
 │   ├── TypelessApp.swift      # 应用入口和生命周期
-│   ├── RecordingManager.swift # 音频录制和 WhisperKit
+│   ├── RecordingManager.swift # 音频录制和 FunASR
 │   ├── KeyMonitor.swift       # 全局 Fn 键检测
 │   ├── TextInserter.swift     # 光标文字插入
 │   ├── OverlayWindow.swift    # 录音 UI 遮罩
@@ -152,7 +152,7 @@ typeless/
 | 组件 | 技术 |
 |------|------|
 | **UI 框架** | SwiftUI |
-| **语音识别** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) (OpenAI Whisper) |
+| **语音识别** | [FunASR](https://github.com/modelscope/FunASR) (阿里达摩院) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) |
 | **音频采集** | AVFoundation |
 | **按键监听** | CGEvent Tap API |
 | **文字插入** | CGEvent（键盘模拟） |
@@ -161,21 +161,20 @@ typeless/
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Fn 键      │────▶│   录制       │────▶│  WhisperKit │────▶│   插入       │
-│  监听       │     │   音频       │     │  转写       │     │   文字       │
+│  Fn 键      │────▶│   录制       │────▶│   FunASR    │────▶│   插入       │
+│  监听       │     │   音频       │     │   转写      │     │   文字       │
 └─────────────┘     └──────────────┘     └─────────────┘     └──────────────┘
     CGEvent           AVFoundation         本地 AI           CGEvent
 ```
 
 ## 🔧 配置说明
 
-应用默认使用 `base` Whisper 模型，在速度和准确度之间取得良好平衡，非常适合中英文混合输入。
+应用默认使用 `SenseVoice FunASR Nano` 模型，在速度和准确度之间取得良好平衡，非常适合中英文混合输入。
 
 | 模型 | 大小 | 速度 | 准确度 | 适用场景 |
 |------|------|------|--------|----------|
-| `tiny` | ~40MB | ⚡⚡⚡ | ⭐⭐ | 快速笔记 |
-| `base` | ~140MB | ⚡⚡ | ⭐⭐⭐ | 日常使用（默认） |
-| `small` | ~460MB | ⚡ | ⭐⭐⭐⭐ | 更高准确度 |
+| `SenseVoice FunASR Nano` | ~179MB | ⚡⚡⚡ | ⭐⭐⭐ | 日常使用（默认） |
+| `FunASR Nano` | ~716MB | ⚡⚡ | ⭐⭐⭐⭐ | 方言、口音识别 |
 
 ## 🤝 参与贡献
 
@@ -193,8 +192,8 @@ typeless/
 
 ## 🙏 致谢
 
-- [WhisperKit](https://github.com/argmaxinc/WhisperKit) - OpenAI Whisper 的 Swift 实现
-- [OpenAI Whisper](https://github.com/openai/whisper) - 语音识别模型
+- [FunASR](https://github.com/modelscope/FunASR) - 阿里达摩院开源语音识别模型
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) - 跨平台语音识别推理框架
 
 ---
 
@@ -202,7 +201,7 @@ typeless/
 
 <p align="center">
   <strong>Press. Speak. Type.</strong><br>
-  A native macOS voice-to-text tool powered by local Whisper AI
+  A native macOS voice-to-text tool powered by local FunASR AI
 </p>
 
 <p align="center">
@@ -224,8 +223,8 @@ https://github.com/user-attachments/assets/c99ec06a-e728-448b-9563-4a2872ebfef5
 | Feature | Description |
 |---------|-------------|
 | 🎤 **Push-to-Talk** | Hold `Fn` key to record, release to transcribe |
-| 🔒 **100% Local** | Whisper model runs entirely on-device, no data leaves your Mac |
-| 🌐 **Multilingual** | Native support for Chinese-English mixed input |
+| 🔒 **100% Local** | FunASR model runs entirely on-device, no data leaves your Mac |
+| 🌐 **Multilingual** | Native support for Chinese-English mixed input with dialect recognition |
 | ⚡ **Fast & Lightweight** | Menu bar app with minimal resource usage |
 | 🎯 **Universal Input** | Works in any app - just position your cursor and speak |
 | 💻 **Universal Binary** | **Runs natively on both Apple Silicon (M1/M2/M3/M4) and Intel Macs - one app, all Macs** |
@@ -323,7 +322,7 @@ On first launch, you'll need to grant two permissions:
 typeless/
 ├── Sources/
 │   ├── TypelessApp.swift      # App entry & lifecycle
-│   ├── RecordingManager.swift # Audio recording & WhisperKit
+│   ├── RecordingManager.swift # Audio recording & FunASR
 │   ├── KeyMonitor.swift       # Global Fn key detection
 │   ├── TextInserter.swift     # Cursor text insertion
 │   ├── OverlayWindow.swift    # Recording UI overlay
@@ -337,7 +336,7 @@ typeless/
 | Component | Technology |
 |-----------|------------|
 | **UI Framework** | SwiftUI |
-| **Speech Recognition** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) (OpenAI Whisper) |
+| **Speech Recognition** | [FunASR](https://github.com/modelscope/FunASR) (Alibaba DAMO Academy) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) |
 | **Audio Capture** | AVFoundation |
 | **Key Monitoring** | CGEvent Tap API |
 | **Text Insertion** | CGEvent (Keyboard Simulation) |
@@ -346,7 +345,7 @@ typeless/
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Fn Key     │────▶│   Record     │────▶│  WhisperKit │────▶│   Insert     │
+│  Fn Key     │────▶│   Record     │────▶│   FunASR    │────▶│   Insert     │
 │  Monitor    │     │   Audio      │     │  Transcribe │     │   Text       │
 └─────────────┘     └──────────────┘     └─────────────┘     └──────────────┘
     CGEvent           AVFoundation         Local AI           CGEvent
@@ -354,13 +353,12 @@ typeless/
 
 ## 🔧 Configuration
 
-The app uses the `base` Whisper model by default, offering a good balance between speed and accuracy for Chinese-English mixed content.
+The app uses the `SenseVoice FunASR Nano` model by default, offering a good balance between speed and accuracy for Chinese-English mixed content.
 
 | Model | Size | Speed | Accuracy | Best For |
 |-------|------|-------|----------|----------|
-| `tiny` | ~40MB | ⚡⚡⚡ | ⭐⭐ | Quick notes |
-| `base` | ~140MB | ⚡⚡ | ⭐⭐⭐ | Daily use (default) |
-| `small` | ~460MB | ⚡ | ⭐⭐⭐⭐ | Higher accuracy |
+| `SenseVoice FunASR Nano` | ~179MB | ⚡⚡⚡ | ⭐⭐⭐ | Daily use (default) |
+| `FunASR Nano` | ~716MB | ⚡⚡ | ⭐⭐⭐⭐ | Dialects & accents |
 
 ## 🤝 Contributing
 
@@ -378,8 +376,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- [WhisperKit](https://github.com/argmaxinc/WhisperKit) - Swift implementation of OpenAI's Whisper
-- [OpenAI Whisper](https://github.com/openai/whisper) - Speech recognition model
+- [FunASR](https://github.com/modelscope/FunASR) - Alibaba DAMO Academy's open-source speech recognition model
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) - Cross-platform speech recognition inference framework
 
 ---
 
