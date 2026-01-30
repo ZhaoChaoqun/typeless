@@ -49,6 +49,20 @@
 
 ## 📦 Installation
 
+### Install via Homebrew (Recommended)
+
+```bash
+# Install
+brew tap ZhaoChaoqun/typeless && brew install --cask nano-typeless && xattr -cr /Applications/Typeless.app
+```
+
+### Upgrade
+
+```bash
+# Upgrade to latest version
+brew update && brew upgrade nano-typeless && xattr -cr /Applications/Typeless.app
+```
+
 ### Build from Source
 
 ```bash
