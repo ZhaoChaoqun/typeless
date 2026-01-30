@@ -36,5 +36,10 @@ Models/
 *.tmp
 *.temp
 
+# Remotion
+.remotion/
+promo-video/node_modules/
+promo-video/out/
+
 # FunASR CoreML conversion scripts (contains large model files)
 funasr-coreml/

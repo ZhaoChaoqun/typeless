@@ -1,0 +1,20 @@
+{
+  "name": "typeless-promo-video",
+  "version": "1.0.0",
+  "description": "Promotional video for Typeless app",
+  "scripts": {
+    "start": "remotion studio",
+    "build": "remotion render src/index.tsx TypelessPromo out/typeless-promo.mp4",
+    "build:gif": "remotion render src/index.tsx TypelessPromo out/typeless-promo.gif --image-format=png"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0"
+  }
+}
