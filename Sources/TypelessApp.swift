@@ -21,43 +21,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide dock icon - we're a menu bar app
         NSApp.setActivationPolicy(.accessory)
-
-        // Setup status bar item
         setupStatusBar()
 
-        // Initialize managers - 使用单例，会自动开始加载模型
         _ = RecordingManager.shared
         overlayWindow = OverlayWindowController()
 
-        // Setup key monitoring
         keyMonitor = KeyMonitor()
-        keyMonitor?.onKeyDown = { [weak self] in
-            self?.startRecording()
-        }
-        keyMonitor?.onKeyUp = { [weak self] in
-            self?.stopRecordingAndTranscribe()
-        }
+        keyMonitor?.onKeyDown = { [weak self] in self?.startRecording() }
+        keyMonitor?.onKeyUp = { [weak self] in self?.stopRecordingAndTranscribe() }
         keyMonitor?.startMonitoring()
 
-        // Check permissions
         checkPermissions()
-
-        // 首次启动时自动下载默认模型
         autoDownloadDefaultModelIfNeeded()
-
-        // 显示首次启动引导
         showOnboardingIfNeeded()
     }
 
-    /// 显示首次启动引导
     private func showOnboardingIfNeeded() {
         onboardingWindow = OnboardingWindowController()
         if onboardingWindow?.shouldShowOnboarding == true {
-            // 延迟一小段时间让窗口准备好，并获取菜单栏图标位置
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                // 传递菜单栏图标位置给引导窗口
                 if let button = self?.statusItem?.button, let buttonWindow = button.window {
                     let frameInScreen = buttonWindow.convertToScreen(button.frame)
                     self?.onboardingWindow?.setStatusItemFrame(frameInScreen)
@@ -67,16 +50,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 首次启动时自动下载默认模型（Paraformer）
     private func autoDownloadDefaultModelIfNeeded() {
         let downloadManager = ModelDownloadManager.shared
-
-        // 检查是否有任何模型已下载
-        let hasAnyModel = downloadManager.availableModels.contains { downloadManager.isModelDownloaded($0.id) }
-
-        if !hasAnyModel {
-            print(">>> 首次启动，自动下载默认模型 (Paraformer)...")
-            downloadManager.downloadModel("paraformer")
+        if !downloadManager.isDownloaded {
+            print(">>> 首次启动，自动下载默认模型...")
+            downloadManager.downloadModel()
         }
     }
 
@@ -100,27 +78,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func checkPermissions() {
-        // Check microphone permission
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             if !granted {
-                DispatchQueue.main.async {
-                    self.showPermissionAlert(for: "麦克风")
-                }
-            } else {
-                print("✓ 麦克风权限已授予")
+                DispatchQueue.main.async { self.showPermissionAlert(for: "麦克风") }
             }
         }
 
-        // Check accessibility permission for global key monitoring
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        if trusted {
-            print("✓ 辅助功能权限已授予")
-        } else {
-            print("⚠️ 需要辅助功能权限才能监听全局按键")
-            print("请前往: 系统设置 > 隐私与安全性 > 辅助功能")
-            print("授权后需要重新启动 Typeless 应用")
-        }
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func showPermissionAlert(for permission: String) {
@@ -160,35 +125,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openSettings() {
-        print(">>> openSettings() 被调用")
-
-        // 如果设置窗口已经存在，直接显示
         if let window = settingsWindow {
-            print(">>> 使用已存在的设置窗口")
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        // 创建新的设置窗口
-        print(">>> 创建新的设置窗口")
         let settingsView = SettingsView()
         let hostingController = NSHostingController(rootView: settingsView)
 
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Typeless 设置"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 400, height: 450))
+        window.setContentSize(NSSize(width: 400, height: 380))
         window.center()
 
-        // 保持窗口引用
         settingsWindow = window
-
-        // 显示窗口
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
-        print(">>> 设置窗口已创建并显示")
     }
 
     @objc func quitApp() {

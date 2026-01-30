@@ -42,9 +42,8 @@ class OnboardingViewModel: ObservableObject {
 
     func checkModelStatus() {
         let downloadManager = ModelDownloadManager.shared
-        let hasAnyModel = downloadManager.availableModels.contains { downloadManager.isModelDownloaded($0.id) }
 
-        if hasAnyModel {
+        if downloadManager.isDownloaded {
             // 有模型，检查是否已加载
             if RecordingManager.shared.isInitialized {
                 state = .ready
@@ -71,13 +70,12 @@ class OnboardingViewModel: ObservableObject {
             let downloadManager = ModelDownloadManager.shared
 
             // 更新下载进度
-            if downloadManager.downloadingModel != nil {
+            if downloadManager.isDownloading {
                 self.state = .downloading(progress: downloadManager.downloadProgress)
             }
 
             // 检查是否已有模型下载完成
-            let hasAnyModel = downloadManager.availableModels.contains { downloadManager.isModelDownloaded($0.id) }
-            if hasAnyModel {
+            if downloadManager.isDownloaded {
                 timer.invalidate()
                 self.state = .loading
                 self.pollModelLoadingStatus()
