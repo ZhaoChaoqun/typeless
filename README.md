@@ -5,8 +5,8 @@
 <h1 align="center">Typeless</h1>
 
 <p align="center">
-  <strong>Press. Speak. Type.</strong><br>
-  A native macOS voice-to-text tool powered by local Whisper AI
+  <strong>按下即说，语音秒变文字</strong><br>
+  基于本地 Whisper AI 的 macOS 原生语音输入工具
 </p>
 
 <p align="center">
@@ -17,11 +17,200 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#-功能特性">功能特性</a> •
+  <a href="#-安装方法">安装方法</a> •
+  <a href="#-使用方法">使用方法</a> •
+  <a href="#-项目架构">项目架构</a> •
+  <a href="#-参与贡献">参与贡献</a>
+</p>
+
+<p align="center">
+  <a href="#english">English</a>
+</p>
+
+---
+
+## 🎬 演示视频
+
+https://github.com/user-attachments/assets/c99ec06a-e728-448b-9563-4a2872ebfef5
+
+## ✨ 功能特性
+
+| 功能 | 描述 |
+|------|------|
+| 🎤 **按键说话** | 按住 `Fn` 键录音，松开即转文字 |
+| 🔒 **完全本地** | Whisper 模型完全在本地运行，数据不出设备 |
+| 🌐 **中英混合** | 原生支持中英文混合输入 |
+| ⚡ **快速轻量** | 菜单栏应用，资源占用极低 |
+| 🎯 **通用输入** | 任意应用可用 - 光标在哪，文字就输入到哪 |
+| 💻 **通用版本** | **同时支持 Apple Silicon (M1/M2/M3/M4) 和 Intel Mac** |
+
+## 🖥️ 系统要求
+
+| 要求 | 规格 |
+|------|------|
+| **系统** | macOS 14.0 (Sonoma) 或更高版本 |
+| **芯片** | **Apple Silicon (M1/M2/M3/M4) 或 Intel - 通用版本支持** |
+| **内存** | 建议 8GB 以上 |
+
+> **说明**：Apple Silicon Mac 将利用神经网络引擎加速推理。Intel Mac 使用 CPU 推理，功能完整。
+
+## 📦 安装方法
+
+### 通过 Homebrew 安装（推荐）
+
+```bash
+# 安装
+brew tap ZhaoChaoqun/typeless && brew install --cask nano-typeless && xattr -cr /Applications/Typeless.app
+```
+
+### 升级
+
+```bash
+# 升级到最新版本
+brew update && brew upgrade nano-typeless && xattr -cr /Applications/Typeless.app
+```
+
+### 从源码编译
+
+```bash
+# 克隆仓库
+git clone https://github.com/ZhaoChaoqun/typeless.git
+cd typeless
+
+# 用 Xcode 打开
+open Typeless.xcodeproj
+
+# 或命令行编译
+xcodebuild -project Typeless.xcodeproj -scheme Typeless build
+```
+
+### 首次启动设置
+
+首次启动需要授予两个权限：
+
+| 权限 | 用途 | 如何开启 |
+|------|------|----------|
+| 🎙️ **麦克风** | 录制语音 | 系统弹窗（自动） |
+| ♿ **辅助功能** | 监听全局 `Fn` 键 | 系统设置 → 隐私与安全性 → 辅助功能 |
+
+> **提示**：授予辅助功能权限后，可能需要重启应用。
+
+## 🚀 使用方法
+
+<table>
+<tr>
+<td width="60%">
+
+### 快速开始
+
+1. **启动** Typeless - 出现在菜单栏
+2. **按住** `Fn` 键开始说话
+3. **松开** `Fn` 键完成录音
+4. **文字** 自动插入到光标位置
+
+### 使用流程
+
+```
+[按住 Fn] → "你好，这是一个测试" → [松开 Fn]
+                    ↓
+         "你好，这是一个测试" 出现在光标处
+```
+
+</td>
+<td width="40%">
+
+### 状态指示
+
+| 状态 | 指示器 |
+|------|--------|
+| 就绪 | 🎵 菜单栏图标 |
+| 录音中 | 🔴 视觉遮罩 |
+| 处理中 | ⏳ 加载指示器 |
+
+</td>
+</tr>
+</table>
+
+## 🏗️ 项目架构
+
+```
+typeless/
+├── Sources/
+│   ├── TypelessApp.swift      # 应用入口和生命周期
+│   ├── RecordingManager.swift # 音频录制和 WhisperKit
+│   ├── KeyMonitor.swift       # 全局 Fn 键检测
+│   ├── TextInserter.swift     # 光标文字插入
+│   ├── OverlayWindow.swift    # 录音 UI 遮罩
+│   └── SettingsView.swift     # 偏好设置 UI
+├── Package.swift              # Swift Package 依赖
+└── Typeless.xcodeproj/        # Xcode 项目
+```
+
+### 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| **UI 框架** | SwiftUI |
+| **语音识别** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) (OpenAI Whisper) |
+| **音频采集** | AVFoundation |
+| **按键监听** | CGEvent Tap API |
+| **文字插入** | CGEvent（键盘模拟） |
+
+### 工作原理
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Fn 键      │────▶│   录制       │────▶│  WhisperKit │────▶│   插入       │
+│  监听       │     │   音频       │     │  转写       │     │   文字       │
+└─────────────┘     └──────────────┘     └─────────────┘     └──────────────┘
+    CGEvent           AVFoundation         本地 AI           CGEvent
+```
+
+## 🔧 配置说明
+
+应用默认使用 `base` Whisper 模型，在速度和准确度之间取得良好平衡，非常适合中英文混合输入。
+
+| 模型 | 大小 | 速度 | 准确度 | 适用场景 |
+|------|------|------|--------|----------|
+| `tiny` | ~40MB | ⚡⚡⚡ | ⭐⭐ | 快速笔记 |
+| `base` | ~140MB | ⚡⚡ | ⭐⭐⭐ | 日常使用（默认） |
+| `small` | ~460MB | ⚡ | ⭐⭐⭐⭐ | 更高准确度 |
+
+## 🤝 参与贡献
+
+欢迎贡献！请随时提交 Pull Request。
+
+1. Fork 本仓库
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 提交 Pull Request
+
+## 📄 许可证
+
+本项目基于 MIT 许可证开源 - 详见 [LICENSE](LICENSE) 文件。
+
+## 🙏 致谢
+
+- [WhisperKit](https://github.com/argmaxinc/WhisperKit) - OpenAI Whisper 的 Swift 实现
+- [OpenAI Whisper](https://github.com/openai/whisper) - 语音识别模型
+
+---
+
+<h1 id="english" align="center">English</h1>
+
+<p align="center">
+  <strong>Press. Speak. Type.</strong><br>
+  A native macOS voice-to-text tool powered by local Whisper AI
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-usage">Usage</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-contributing">Contributing</a>
 </p>
 
 ---
