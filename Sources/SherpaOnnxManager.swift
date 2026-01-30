@@ -24,7 +24,7 @@ class SherpaOnnxManager: NSObject {
     /// 模型配置
     static let modelId = "sense-voice-funasr-nano"
     static let folderName = "sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17"
-    static let downloadURL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2"
+    static let downloadURL = "https://modelscope.cn/models/zhaochaoqun/sherpa-onnx-asr-models/resolve/master/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2"
     static let displayName = "SenseVoice FunASR Nano"
 
     /// 获取模型路径
