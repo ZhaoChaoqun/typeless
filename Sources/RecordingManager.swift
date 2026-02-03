@@ -192,7 +192,7 @@ class RecordingManager {
             }
         }
 
-        // 无重叠，直接拼接（无空格，因为中文不需要）
+        // 无重叠，信任模型输出的标点，直接拼接
         return existing + new
     }
 

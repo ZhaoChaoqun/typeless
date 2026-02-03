@@ -83,6 +83,11 @@ class SherpaOnnxRecognizer {
         // 过滤 FunASR 特殊标记（如 <|nospeech|>, <|HAPPY|>, <|en|> 等）
         var text = String(cString: textPtr)
         text = text.replacingOccurrences(of: "<\\|[^|]+\\|>", with: "", options: .regularExpression)
+
+        // 移除中文和英文之间的空格
+        text = text.replacingOccurrences(of: "([\\u4e00-\\u9fa5])\\s+([a-zA-Z0-9])", with: "$1$2", options: .regularExpression)
+        text = text.replacingOccurrences(of: "([a-zA-Z0-9])\\s+([\\u4e00-\\u9fa5])", with: "$1$2", options: .regularExpression)
+
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : text
     }
