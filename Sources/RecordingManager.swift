@@ -20,6 +20,11 @@ class RecordingManager {
     /// 用于识别的队列
     private let recognitionQueue = DispatchQueue(label: "com.typeless.recognition", qos: .userInitiated)
 
+    // MARK: - 标点符号常量
+    private static let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
+    private static let exclamationWords: Set<Character> = ["哇", "耶", "啦"]
+    private static let punctuationSet: Set<Character> = ["，", "。", "！", "？", "、", "；"]
+
     init() {
         Task { await initializeRecognizer() }
     }
@@ -186,14 +191,12 @@ class RecordingManager {
         guard let lastChar = trimmed.last else { return "" }
 
         // 疑问词检测
-        let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
-        if questionWords.contains(lastChar) {
+        if Self.questionWords.contains(lastChar) {
             return "？"
         }
 
         // 感叹词检测
-        let exclamationWords: Set<Character> = ["哇", "耶", "啦"]
-        if exclamationWords.contains(lastChar) {
+        if Self.exclamationWords.contains(lastChar) {
             return "！"
         }
 
@@ -212,18 +215,14 @@ class RecordingManager {
 
     /// 在文本末尾添加最终标点
     private func addFinalPunctuation(_ text: String) -> String {
-        let punctuationSet: Set<Character> = ["，", "。", "！", "？", "、", "；"]
-        if let last = text.last, punctuationSet.contains(last) {
+        if let last = text.last, Self.punctuationSet.contains(last) {
             return text
         }
 
         // 检查是否应该用问号
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if let lastChar = trimmed.last {
-            let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
-            if questionWords.contains(lastChar) {
-                return text + "？"
-            }
+        if let lastChar = trimmed.last, Self.questionWords.contains(lastChar) {
+            return text + "？"
         }
 
         return text + "。"
