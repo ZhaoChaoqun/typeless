@@ -6,6 +6,7 @@ class OverlayWindowController {
     private var window: NSWindow?
     private var hostingView: NSHostingView<OverlayView>?
     private var viewModel = OverlayViewModel()
+    private var sizeObserver: NSObjectProtocol?
 
     init() {
         setupWindow()
@@ -33,6 +34,16 @@ class OverlayWindowController {
         window.isMovableByWindowBackground = false
         window.hasShadow = true
 
+        // 监听窗口大小变化，保持居中
+        sizeObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: hostingView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.centerWindow()
+        }
+        hostingView?.postsFrameChangedNotifications = true
+
         // 居中显示在屏幕顶部
         positionWindow()
     }
@@ -42,41 +53,38 @@ class OverlayWindowController {
               let screen = NSScreen.main else { return }
 
         let screenFrame = screen.visibleFrame
-        let windowSize = window.frame.size
 
         // 放在屏幕顶部中央
-        let x = screenFrame.midX - windowSize.width / 2
-        let y = screenFrame.maxY - windowSize.height - 60 // 距离顶部60点
+        let x = screenFrame.midX - window.frame.width / 2
+        let y = screenFrame.maxY - window.frame.height - 60 // 距离顶部60点
 
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
+    /// 保持窗口水平居中（内容变化时调用）
+    private func centerWindow() {
+        guard let window = window,
+              let screen = NSScreen.main else { return }
+
+        let screenFrame = screen.visibleFrame
+        let x = screenFrame.midX - window.frame.width / 2
+
+        // 只调整 x 位置，保持 y 不变
+        window.setFrameOrigin(NSPoint(x: x, y: window.frame.origin.y))
+    }
+
     func show() {
-        print(">>> OverlayWindow show() called")
-        viewModel.state = .recording
         viewModel.reset()
         viewModel.startAnimation()
         positionWindow()
         window?.orderFront(nil)
-        print(">>> OverlayWindow window visible: \(window?.isVisible ?? false)")
-    }
-
-    func showProcessing() {
-        print(">>> OverlayWindow showProcessing() called")
-        viewModel.state = .processing
-        positionWindow()
     }
 
     func updateRecognizedText(_ text: String) {
         viewModel.recognizedText = text
-        // 窗口内容变化时重新定位
-        DispatchQueue.main.async { [weak self] in
-            self?.positionWindow()
-        }
     }
 
     func hide() {
-        print(">>> OverlayWindow hide() called")
         viewModel.stopAnimation()
         window?.orderOut(nil)
     }
@@ -84,12 +92,6 @@ class OverlayWindowController {
 
 /// 悬浮窗口视图模型
 class OverlayViewModel: ObservableObject {
-    enum State {
-        case recording
-        case processing
-    }
-
-    @Published var state: State = .recording
     @Published var animationPhase: CGFloat = 0
     @Published var recognizedText: String = ""
 
@@ -122,51 +124,39 @@ struct OverlayView: View {
     private let lineHeight: CGFloat = 20     // 每行高度
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // 主状态指示器
+        VStack(alignment: .center, spacing: 8) {
+            // 状态指示器 - 始终居中
             HStack(spacing: 12) {
-                // 左侧图标区域 - 固定宽度
-                Group {
-                    if viewModel.state == .recording {
-                        // 录音动画 - 竖纹声波
-                        HStack(spacing: 3) {
-                            ForEach(0..<7, id: \.self) { index in
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Color.white.opacity(0.9))
-                                    .frame(width: 3, height: waveHeight(for: index))
-                            }
-                        }
-                    } else {
-                        // 处理中 - 显示旋转指示器
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.7)
+                // 录音动画 - 竖纹声波
+                HStack(spacing: 3) {
+                    ForEach(0..<7, id: \.self) { index in
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: 3, height: waveHeight(for: index))
                     }
                 }
                 .frame(width: 30, height: 18)
 
-                // 右侧文字区域 - 固定宽度确保一致
-                Text(viewModel.state == .recording ? "正在聆听..." : "识别中...")
+                Text("正在聆听...")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white)
-                    .frame(width: 75, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
 
-            // 识别结果显示（当有文字时）
+            // 识别结果显示
             if !viewModel.recognizedText.isEmpty {
                 textContentView
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .frame(maxWidth: maxWidth)
+        .frame(minWidth: 130, maxWidth: maxWidth)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.black.opacity(0.75))
         )
         .animation(.easeInOut(duration: 0.15), value: viewModel.animationPhase)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.recognizedText)
     }
 
     @ViewBuilder
@@ -174,17 +164,20 @@ struct OverlayView: View {
         let textHeight = calculateTextHeight(viewModel.recognizedText)
         let displayHeight = min(textHeight, CGFloat(maxLines) * lineHeight)
         let needsScroll = textHeight > displayHeight
+        let textWidth = maxWidth - 32  // 文本区域宽度
 
         if needsScroll {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(viewModel.recognizedText)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
-                        .frame(width: maxWidth - 48, alignment: .leading)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: textWidth - 16, alignment: .leading)
                         .id("bottom")
                 }
-                .frame(width: maxWidth - 32, height: displayHeight)
+                .frame(width: textWidth, height: displayHeight)
                 .onChange(of: viewModel.recognizedText) { _, _ in
                     withAnimation(.easeOut(duration: 0.15)) {
                         proxy.scrollTo("bottom", anchor: .bottom)
@@ -195,8 +188,9 @@ struct OverlayView: View {
             Text(viewModel.recognizedText)
                 .font(.system(size: 13))
                 .foregroundColor(.white.opacity(0.9))
-                .frame(maxWidth: maxWidth - 32, alignment: .leading)
+                .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(width: textWidth, alignment: .leading)
         }
     }
 
