@@ -119,7 +119,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func stopRecordingAndTranscribe() {
         DispatchQueue.main.async {
-            self.overlayWindow?.showProcessing()
             RecordingManager.shared.stopRecording { [weak self] text in
                 DispatchQueue.main.async {
                     // 清除部分结果回调
