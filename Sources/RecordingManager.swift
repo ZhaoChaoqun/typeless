@@ -15,6 +15,8 @@ class RecordingManager {
     var onPartialResult: ((String) -> Void)?
     /// 累积的识别文字
     private var accumulatedText: String = ""
+    /// 上一个语音段的结束时间（用于计算停顿时长）
+    private var lastSegmentEndTime: Float = 0
     /// 用于识别的队列
     private let recognitionQueue = DispatchQueue(label: "com.typeless.recognition", qos: .userInitiated)
 
@@ -78,6 +80,7 @@ class RecordingManager {
 
         // 重置状态
         accumulatedText = ""
+        lastSegmentEndTime = 0
         vad?.reset()
 
         // 创建音频引擎
@@ -145,7 +148,7 @@ class RecordingManager {
 
         // 检查是否有完整的语音段
         while vad.hasSegment() {
-            if let segment = vad.popSegment() {
+            if let segment = vad.popSegmentWithTime() {
                 recognitionQueue.async { [weak self] in
                     self?.transcribeSegment(segment)
                 }
@@ -153,17 +156,22 @@ class RecordingManager {
         }
     }
 
-    private func transcribeSegment(_ samples: [Float]) {
+    private func transcribeSegment(_ segment: SpeechSegment) {
         guard let recognizer = recognizer else { return }
 
-        if let text = recognizer.transcribe(samples: samples) {
+        if let text = recognizer.transcribe(samples: segment.samples) {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
 
-                // 智能拼接文字（去除重叠）
-                self.accumulatedText = self.mergeTexts(self.accumulatedText, text)
+                // 计算与上一段的停顿时长
+                let pauseDuration = self.lastSegmentEndTime > 0 ? segment.startTime - self.lastSegmentEndTime : 0
+                self.lastSegmentEndTime = segment.endTime
+
+                // 智能拼接文字（带标点）
+                self.accumulatedText = self.mergeTexts(self.accumulatedText, text, pauseDuration: pauseDuration)
 
                 print(">>> 分段识别结果: \(text)")
+                print(">>> 停顿时长: \(pauseDuration)秒")
                 print(">>> 累积文字: \(self.accumulatedText)")
 
                 // 通知 UI 更新
@@ -172,9 +180,53 @@ class RecordingManager {
         }
     }
 
-    /// 拼接文字
-    private func mergeTexts(_ existing: String, _ new: String) -> String {
-        return existing + new
+    /// 根据文本内容和停顿时长决定标点
+    private func determinePunctuation(text: String, pauseDuration: Float) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard let lastChar = trimmed.last else { return "" }
+
+        // 疑问词检测
+        let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
+        if questionWords.contains(lastChar) {
+            return "？"
+        }
+
+        // 感叹词检测
+        let exclamationWords: Set<Character> = ["哇", "耶", "啦"]
+        if exclamationWords.contains(lastChar) {
+            return "！"
+        }
+
+        // 根据停顿时长决定
+        return pauseDuration >= 1.0 ? "。" : "，"
+    }
+
+    /// 拼接文字（带智能标点）
+    private func mergeTexts(_ existing: String, _ new: String, pauseDuration: Float) -> String {
+        if existing.isEmpty {
+            return new
+        }
+        let punctuation = determinePunctuation(text: existing, pauseDuration: pauseDuration)
+        return existing + punctuation + new
+    }
+
+    /// 在文本末尾添加最终标点
+    private func addFinalPunctuation(_ text: String) -> String {
+        let punctuationSet: Set<Character> = ["，", "。", "！", "？", "、", "；"]
+        if let last = text.last, punctuationSet.contains(last) {
+            return text
+        }
+
+        // 检查是否应该用问号
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if let lastChar = trimmed.last {
+            let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
+            if questionWords.contains(lastChar) {
+                return text + "？"
+            }
+        }
+
+        return text + "。"
     }
 
     func stopRecording(completion: @escaping (String?) -> Void) {
@@ -201,18 +253,24 @@ class RecordingManager {
             }
 
             while self.vad?.hasSegment() == true {
-                if let segment = self.vad?.popSegment() {
-                    if let text = self.recognizer?.transcribe(samples: segment) {
+                if let segment = self.vad?.popSegmentWithTime() {
+                    if let text = self.recognizer?.transcribe(samples: segment.samples) {
                         DispatchQueue.main.sync {
-                            // 智能拼接文字（去除重叠）
-                            self.accumulatedText = self.mergeTexts(self.accumulatedText, text)
+                            // 计算停顿时长
+                            let pauseDuration = self.lastSegmentEndTime > 0 ? segment.startTime - self.lastSegmentEndTime : 0
+                            self.lastSegmentEndTime = segment.endTime
+                            // 智能拼接文字（带标点）
+                            self.accumulatedText = self.mergeTexts(self.accumulatedText, text, pauseDuration: pauseDuration)
                         }
                     }
                 }
             }
 
-            // 返回最终结果
-            let finalText = self.accumulatedText.isEmpty ? nil : self.accumulatedText
+            // 返回最终结果（添加末尾标点）
+            var finalText: String? = nil
+            if !self.accumulatedText.isEmpty {
+                finalText = self.addFinalPunctuation(self.accumulatedText)
+            }
             DispatchQueue.main.async {
                 print(">>> 最终识别结果: \(finalText ?? "（无）")")
                 completion(finalText)

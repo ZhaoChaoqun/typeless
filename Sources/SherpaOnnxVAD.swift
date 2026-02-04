@@ -1,5 +1,12 @@
 import Foundation
 
+/// 语音段数据结构
+struct SpeechSegment {
+    let samples: [Float]
+    let startTime: Float  // 开始时间（秒）
+    let endTime: Float    // 结束时间（秒）
+}
+
 /// Sherpa-ONNX VAD（语音活动检测）
 class SherpaOnnxVAD {
     private var vad: OpaquePointer?
@@ -68,8 +75,8 @@ class SherpaOnnxVAD {
         return SherpaOnnxVoiceActivityDetectorDetected(vad) == 1
     }
 
-    /// 获取并移除第一个语音段
-    func popSegment() -> [Float]? {
+    /// 获取并移除第一个语音段（包含时间信息）
+    func popSegmentWithTime() -> SpeechSegment? {
         guard let vad = vad else { return nil }
         guard hasSegment() else { return nil }
 
@@ -93,7 +100,17 @@ class SherpaOnnxVAD {
             samples[i] = samplesPtr[i]
         }
 
-        return samples
+        // 计算时间戳（采样率 16000Hz）
+        let startSample = Int(segment.pointee.start)
+        let startTime = Float(startSample) / Float(sampleRate)
+        let endTime = Float(startSample + count) / Float(sampleRate)
+
+        return SpeechSegment(samples: samples, startTime: startTime, endTime: endTime)
+    }
+
+    /// 获取并移除第一个语音段（仅返回样本，向后兼容）
+    func popSegment() -> [Float]? {
+        return popSegmentWithTime()?.samples
     }
 
     /// 刷新缓冲区，处理剩余数据
