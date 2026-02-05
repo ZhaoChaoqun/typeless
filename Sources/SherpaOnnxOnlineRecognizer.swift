@@ -130,6 +130,19 @@ class SherpaOnnxOnlineRecognizer {
         SherpaOnnxOnlineStreamReset(recognizer, stream)
     }
 
+    /// 重新创建流（在 inputFinished 后必须调用此方法才能开始新的识别）
+    func recreateStream() {
+        // 销毁旧的 stream
+        if let oldStream = stream {
+            SherpaOnnxDestroyOnlineStream(oldStream)
+        }
+        // 创建新的 stream
+        stream = SherpaOnnxCreateOnlineStream(recognizer)
+        if stream == nil {
+            print(">>> SherpaOnnxOnlineRecognizer: 重新创建流失败")
+        }
+    }
+
     /// 通知输入结束
     func inputFinished() {
         guard let stream = stream else { return }

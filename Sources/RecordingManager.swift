@@ -152,7 +152,8 @@ class RecordingManager {
         case .funasrNano:
             vad?.reset()
         case .streamingParaformer:
-            onlineRecognizer?.reset()
+            // 确保使用新的 stream（防止上次 inputFinished 后状态异常）
+            onlineRecognizer?.recreateStream()
         }
 
         // 创建音频引擎
@@ -416,8 +417,8 @@ class RecordingManager {
             // 获取最终结果
             let text = recognizer.getResult()
 
-            // 重置流状态，清空残留数据
-            recognizer.reset()
+            // 重新创建流（inputFinished 后必须创建新流才能继续使用）
+            recognizer.recreateStream()
 
             DispatchQueue.main.async {
                 var finalText: String? = nil
