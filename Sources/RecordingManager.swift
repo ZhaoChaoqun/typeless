@@ -398,9 +398,6 @@ class RecordingManager {
 
     /// 停止 Streaming Paraformer 录音
     private func stopRecordingStreaming(completion: @escaping (String?) -> Void) {
-        // 通知输入结束
-        onlineRecognizer?.inputFinished()
-
         // 处理剩余的解码
         recognitionQueue.async { [weak self] in
             guard let self = self,
@@ -409,10 +406,16 @@ class RecordingManager {
                 return
             }
 
+            // 通知输入结束（必须在 recognitionQueue 中调用，确保之前的音频都已送入）
+            recognizer.inputFinished()
+
             // 继续解码直到完成
             while recognizer.isReady() {
                 recognizer.decode()
             }
+
+            // 再次尝试解码（inputFinished 后可能产生新的可解码帧）
+            recognizer.decode()
 
             // 获取最终结果
             let text = recognizer.getResult()
