@@ -43,3 +43,4 @@ promo-video/out/
 
 # FunASR CoreML conversion scripts (contains large model files)
 funasr-coreml/
+.cache/

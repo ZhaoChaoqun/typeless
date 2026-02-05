@@ -40,8 +40,8 @@ class RecordingManager {
 
     /// 切换 ASR 模型
     func switchModel(to model: ASRModelType) async {
-        guard model != currentModel else { return }
-        currentModel = model
+        // 注意：不能用 currentModel 比较，因为 SettingsView 已经更新了 UserDefaults
+        // 直接重新初始化识别器
         await initializeRecognizer()
     }
 
