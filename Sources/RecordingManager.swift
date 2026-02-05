@@ -416,6 +416,9 @@ class RecordingManager {
             // 获取最终结果
             let text = recognizer.getResult()
 
+            // 重置流状态，清空残留数据
+            recognizer.reset()
+
             DispatchQueue.main.async {
                 var finalText: String? = nil
                 if !text.isEmpty {
