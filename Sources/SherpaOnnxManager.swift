@@ -133,20 +133,37 @@ class SherpaOnnxManager: NSObject {
 
     // MARK: - Streaming Paraformer 模型路径
 
-    /// 获取 Streaming Paraformer 模型路径
+    /// 获取 Streaming Paraformer 模型路径（优先使用 FP32，否则使用 INT8）
     func getStreamingParaformerPath() -> (encoderPath: String, decoderPath: String, tokensPath: String)? {
         let modelDir = modelsDirectory.appendingPathComponent(ASRModelType.streamingParaformer.folderName)
-        let encoderPath = modelDir.appendingPathComponent("encoder.int8.onnx")
-        let decoderPath = modelDir.appendingPathComponent("decoder.int8.onnx")
         let tokensPath = modelDir.appendingPathComponent("tokens.txt")
 
-        guard FileManager.default.fileExists(atPath: encoderPath.path),
-              FileManager.default.fileExists(atPath: decoderPath.path),
-              FileManager.default.fileExists(atPath: tokensPath.path) else {
+        // 检查 tokens.txt 是否存在
+        guard FileManager.default.fileExists(atPath: tokensPath.path) else {
             return nil
         }
 
-        return (encoderPath.path, decoderPath.path, tokensPath.path)
+        // 优先使用 FP32 版本（精度更高）
+        let encoderFP32 = modelDir.appendingPathComponent("encoder.onnx")
+        let decoderFP32 = modelDir.appendingPathComponent("decoder.onnx")
+
+        if FileManager.default.fileExists(atPath: encoderFP32.path),
+           FileManager.default.fileExists(atPath: decoderFP32.path) {
+            print("[SherpaOnnx] 使用 FP32 版本 Streaming Paraformer（精度更高）")
+            return (encoderFP32.path, decoderFP32.path, tokensPath.path)
+        }
+
+        // 回退到 INT8 版本
+        let encoderINT8 = modelDir.appendingPathComponent("encoder.int8.onnx")
+        let decoderINT8 = modelDir.appendingPathComponent("decoder.int8.onnx")
+
+        if FileManager.default.fileExists(atPath: encoderINT8.path),
+           FileManager.default.fileExists(atPath: decoderINT8.path) {
+            print("[SherpaOnnx] 使用 INT8 版本 Streaming Paraformer")
+            return (encoderINT8.path, decoderINT8.path, tokensPath.path)
+        }
+
+        return nil
     }
 
     /// 检查 Streaming Paraformer 模型是否已下载
