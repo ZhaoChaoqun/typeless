@@ -110,6 +110,11 @@ class SherpaOnnxManager: NSObject {
     static let vadModelName = "silero_vad.onnx"
     static let vadDownloadURL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 
+    /// 标点模型配置（INT8 版本，更小的模型文件）
+    static let punctModelFolder = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"
+    static let punctModelScopeURL = "https://modelscope.cn/models/zhaochaoqun/sherpa-onnx-asr-models/resolve/master/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2"
+    static let punctGitHubURL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2"
+
     // MARK: - FunASR Nano 模型路径
 
     /// 获取 FunASR Nano 模型路径
@@ -247,6 +252,143 @@ class SherpaOnnxManager: NSObject {
                     completion(true, nil)
                 } catch {
                     completion(false, "保存失败: \(error.localizedDescription)")
+                }
+            }
+        }
+        task.resume()
+    }
+
+    // MARK: - 标点模型
+
+    /// 获取标点模型路径
+    func getPunctuationModelPath() -> String? {
+        let modelDir = modelsDirectory.appendingPathComponent(Self.punctModelFolder)
+        let modelPath = modelDir.appendingPathComponent("model.int8.onnx")
+
+        guard FileManager.default.fileExists(atPath: modelPath.path) else {
+            return nil
+        }
+        return modelPath.path
+    }
+
+    /// 检查标点模型是否已下载
+    func isPunctuationModelDownloaded() -> Bool {
+        return getPunctuationModelPath() != nil
+    }
+
+    /// 下载标点模型
+    func downloadPunctuationModel(progress: @escaping (String) -> Void, completion: @escaping (Bool, String?) -> Void) {
+        // 如果已存在，直接返回成功
+        if isPunctuationModelDownloaded() {
+            completion(true, nil)
+            return
+        }
+
+        Task {
+            await MainActor.run {
+                progress("正在检测最佳下载源...")
+            }
+
+            // 检测最快的下载源
+            let primarySource = await selectFastestPunctSource()
+            let fallbackSource: DownloadSource = primarySource == .modelScope ? .github : .modelScope
+
+            await MainActor.run {
+                self.downloadPunctFromSource(
+                    source: primarySource,
+                    fallback: fallbackSource,
+                    progress: progress,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    /// 检测标点模型最快下载源
+    private func selectFastestPunctSource() async -> DownloadSource {
+        return await withTaskGroup(of: (DownloadSource, Bool).self) { group in
+            let timeout: TimeInterval = 5.0
+
+            for source in DownloadSource.allCases {
+                group.addTask {
+                    let urlString = source == .modelScope ? Self.punctModelScopeURL : Self.punctGitHubURL
+                    guard let url = URL(string: urlString) else {
+                        return (source, false)
+                    }
+                    var request = URLRequest(url: url, timeoutInterval: timeout)
+                    request.httpMethod = "HEAD"
+
+                    do {
+                        let (_, response) = try await URLSession.shared.data(for: request)
+                        if let httpResponse = response as? HTTPURLResponse,
+                           (200...399).contains(httpResponse.statusCode) {
+                            print("[SherpaOnnx] 标点模型 \(source.displayName) 响应成功")
+                            return (source, true)
+                        }
+                    } catch {
+                        print("[SherpaOnnx] 标点模型 \(source.displayName) 请求失败")
+                    }
+                    return (source, false)
+                }
+            }
+
+            for await (source, success) in group {
+                if success {
+                    print("[SherpaOnnx] 标点模型选择下载源: \(source.displayName)")
+                    group.cancelAll()
+                    return source
+                }
+            }
+
+            return .modelScope
+        }
+    }
+
+    /// 从指定源下载标点模型
+    private func downloadPunctFromSource(
+        source: DownloadSource,
+        fallback: DownloadSource?,
+        progress: @escaping (String) -> Void,
+        completion: @escaping (Bool, String?) -> Void
+    ) {
+        let urlString = source == .modelScope ? Self.punctModelScopeURL : Self.punctGitHubURL
+        guard let url = URL(string: urlString) else {
+            completion(false, "无效的下载地址")
+            return
+        }
+
+        progress("正在从 \(source.displayName) 下载标点模型...")
+
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+            guard let self = self else { return }
+
+            DispatchQueue.main.async {
+                if let error = error {
+                    // 尝试备用源
+                    if let fallback = fallback {
+                        print("[SherpaOnnx] 标点模型下载失败，尝试备用源: \(fallback.displayName)")
+                        progress("下载失败，正在尝试备用源...")
+                        self.downloadPunctFromSource(source: fallback, fallback: nil, progress: progress, completion: completion)
+                        return
+                    }
+                    completion(false, "下载失败: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let tempURL = tempURL else {
+                    completion(false, "下载失败: 无法获取临时文件")
+                    return
+                }
+
+                progress("正在解压标点模型...")
+
+                let result = self.extractTarBz2(from: tempURL, to: self.modelsDirectory)
+
+                if result {
+                    print("[SherpaOnnx] 标点模型下载完成")
+                    completion(true, nil)
+                } else {
+                    completion(false, "解压失败")
                 }
             }
         }

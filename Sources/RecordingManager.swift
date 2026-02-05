@@ -8,6 +8,7 @@ class RecordingManager {
     private var audioEngine: AVAudioEngine?
     private var offlineRecognizer: SherpaOnnxRecognizer?       // FunASR Nano
     private var onlineRecognizer: SherpaOnnxOnlineRecognizer?  // Streaming Paraformer
+    private var punctuator: SherpaOnnxPunctuation?             // 标点处理器
     private var vad: SherpaOnnxVAD?
     private var isRecording = false
     private var isInitializing = false
@@ -30,15 +31,8 @@ class RecordingManager {
     var onPartialResult: ((String) -> Void)?
     /// 累积的识别文字
     private var accumulatedText: String = ""
-    /// 上一个语音段的结束时间（用于计算停顿时长）
-    private var lastSegmentEndTime: Float = 0
     /// 用于识别的队列
     private let recognitionQueue = DispatchQueue(label: "com.typeless.recognition", qos: .userInitiated)
-
-    // MARK: - 标点符号常量
-    private static let questionWords: Set<Character> = ["吗", "呢", "吧", "么", "嘛"]
-    private static let exclamationWords: Set<Character> = ["哇", "耶", "啦"]
-    private static let punctuationSet: Set<Character> = ["，", "。", "！", "？", "、", "；"]
 
     init() {
         Task { await initializeRecognizer() }
@@ -90,6 +84,9 @@ class RecordingManager {
 
         // 初始化 VAD（FunASR 需要）
         await initializeVAD()
+
+        // 初始化标点处理器
+        await initializePunctuation()
     }
 
     /// 初始化 Streaming Paraformer（无需 VAD）
@@ -111,7 +108,36 @@ class RecordingManager {
         } else {
             print("========== Streaming Paraformer 模型加载失败 ==========")
         }
-        // Streaming Paraformer 不需要 VAD
+
+        // 初始化标点处理器
+        await initializePunctuation()
+    }
+
+    /// 初始化标点处理器
+    private func initializePunctuation() async {
+        // 先检查标点模型是否存在
+        if let punctPath = SherpaOnnxManager.shared.getPunctuationModelPath() {
+            punctuator = SherpaOnnxPunctuation(modelPath: punctPath)
+            if punctuator != nil {
+                print("========== 标点模型加载成功 ==========")
+            }
+        } else {
+            print("⚠️ 标点模型未下载，正在下载...")
+            // 异步下载标点模型
+            await withCheckedContinuation { continuation in
+                SherpaOnnxManager.shared.downloadPunctuationModel(progress: { progress in
+                    print("[Punctuation] \(progress)")
+                }, completion: { [weak self] success, error in
+                    if success, let punctPath = SherpaOnnxManager.shared.getPunctuationModelPath() {
+                        self?.punctuator = SherpaOnnxPunctuation(modelPath: punctPath)
+                        print("========== 标点模型下载并加载成功 ==========")
+                    } else {
+                        print("⚠️ 标点模型下载失败: \(error ?? "未知错误")")
+                    }
+                    continuation.resume()
+                })
+            }
+        }
     }
 
     private func initializeVAD() async {
@@ -145,16 +171,7 @@ class RecordingManager {
 
         // 重置状态
         accumulatedText = ""
-        lastSegmentEndTime = 0
-
-        // 根据模型类型重置
-        switch currentModel {
-        case .funasrNano:
-            vad?.reset()
-        case .streamingParaformer:
-            // reset() 已在 stopRecording 中调用，无需额外操作
-            break
-        }
+        vad?.reset()
 
         // 创建音频引擎
         audioEngine = AVAudioEngine()
@@ -269,64 +286,20 @@ class RecordingManager {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
 
-                // 计算与上一段的停顿时长
-                let pauseDuration = self.lastSegmentEndTime > 0 ? segment.startTime - self.lastSegmentEndTime : 0
-                self.lastSegmentEndTime = segment.endTime
-
-                // 智能拼接文字（带标点）
-                self.accumulatedText = self.mergeTexts(self.accumulatedText, text, pauseDuration: pauseDuration)
+                // 拼接文字（不添加标点，最后由 CT-Transformer 统一处理）
+                if self.accumulatedText.isEmpty {
+                    self.accumulatedText = text
+                } else {
+                    self.accumulatedText += text
+                }
 
                 print(">>> 分段识别结果: \(text)")
-                print(">>> 停顿时长: \(pauseDuration)秒")
                 print(">>> 累积文字: \(self.accumulatedText)")
 
                 // 通知 UI 更新
                 self.onPartialResult?(self.accumulatedText)
             }
         }
-    }
-
-    /// 根据文本内容和停顿时长决定标点
-    private func determinePunctuation(text: String, pauseDuration: Float) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard let lastChar = trimmed.last else { return "" }
-
-        // 疑问词检测
-        if Self.questionWords.contains(lastChar) {
-            return "？"
-        }
-
-        // 感叹词检测
-        if Self.exclamationWords.contains(lastChar) {
-            return "！"
-        }
-
-        // 根据停顿时长决定
-        return pauseDuration >= 1.0 ? "。" : "，"
-    }
-
-    /// 拼接文字（带智能标点）
-    private func mergeTexts(_ existing: String, _ new: String, pauseDuration: Float) -> String {
-        if existing.isEmpty {
-            return new
-        }
-        let punctuation = determinePunctuation(text: existing, pauseDuration: pauseDuration)
-        return existing + punctuation + new
-    }
-
-    /// 在文本末尾添加最终标点
-    private func addFinalPunctuation(_ text: String) -> String {
-        if let last = text.last, Self.punctuationSet.contains(last) {
-            return text
-        }
-
-        // 检查是否应该用问号
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if let lastChar = trimmed.last, Self.questionWords.contains(lastChar) {
-            return text + "？"
-        }
-
-        return text + "。"
     }
 
     func stopRecording(completion: @escaping (String?) -> Void) {
@@ -342,80 +315,72 @@ class RecordingManager {
         isRecording = false
         print("停止录音")
 
-        // 根据模型类型处理
+        // 根据模型类型获取原始文本，然后统一处理标点
         switch currentModel {
         case .funasrNano:
-            stopRecordingFunASR(completion: completion)
+            flushFunASR { [weak self] rawText in
+                self?.finalizeAndComplete(rawText: rawText, completion: completion)
+            }
         case .streamingParaformer:
-            stopRecordingStreaming(completion: completion)
+            let rawText = flushStreaming()
+            finalizeAndComplete(rawText: rawText, completion: completion)
         }
     }
 
-    /// 停止 FunASR 录音（处理 VAD 剩余音频）
-    private func stopRecordingFunASR(completion: @escaping (String?) -> Void) {
-        // 刷新 VAD，处理剩余音频
+    /// 刷新 FunASR 剩余音频并获取原始文本
+    private func flushFunASR(completion: @escaping (String) -> Void) {
         vad?.flush()
 
-        // 处理剩余的语音段
         recognitionQueue.async { [weak self] in
             guard let self = self else {
-                DispatchQueue.main.async { completion(nil) }
+                DispatchQueue.main.async { completion("") }
                 return
             }
 
             while self.vad?.hasSegment() == true {
-                if let segment = self.vad?.popSegmentWithTime() {
-                    if let text = self.offlineRecognizer?.transcribe(samples: segment.samples) {
-                        DispatchQueue.main.sync {
-                            // 计算停顿时长
-                            let pauseDuration = self.lastSegmentEndTime > 0 ? segment.startTime - self.lastSegmentEndTime : 0
-                            self.lastSegmentEndTime = segment.endTime
-                            // 智能拼接文字（带标点）
-                            self.accumulatedText = self.mergeTexts(self.accumulatedText, text, pauseDuration: pauseDuration)
-                        }
+                if let segment = self.vad?.popSegmentWithTime(),
+                   let text = self.offlineRecognizer?.transcribe(samples: segment.samples) {
+                    DispatchQueue.main.sync {
+                        self.accumulatedText += text
                     }
                 }
             }
 
-            // 返回最终结果（添加末尾标点）
-            var finalText: String? = nil
-            if !self.accumulatedText.isEmpty {
-                finalText = self.addFinalPunctuation(self.accumulatedText)
-            }
+            let rawText = self.accumulatedText
             DispatchQueue.main.async {
-                print(">>> 最终识别结果: \(finalText ?? "（无）")")
-                completion(finalText)
+                completion(rawText)
             }
         }
     }
 
-    /// 停止 Streaming Paraformer 录音
-    private func stopRecordingStreaming(completion: @escaping (String?) -> Void) {
-        guard let recognizer = onlineRecognizer else {
-            completion(nil)
-            return
-        }
+    /// 刷新 Streaming Paraformer 并获取原始文本
+    private func flushStreaming() -> String {
+        guard let recognizer = onlineRecognizer else { return "" }
 
-        // 注入 0.3 秒静音（4800 samples @ 16kHz）触发剩余帧解码
+        // 注入 0.3 秒静音触发剩余帧解码
         let silencePadding = [Float](repeating: 0.0, count: 4800)
         recognizer.acceptWaveform(samples: silencePadding)
 
-        // 解码所有剩余帧
         while recognizer.isReady() {
             recognizer.decode()
         }
 
-        // 获取最终结果
         let text = recognizer.getResult()
-
-        // 重置流状态（为下次录音准备）
         recognizer.reset()
+        return text
+    }
 
-        var finalText: String? = nil
-        if !text.isEmpty {
-            finalText = addFinalPunctuation(text)
+    /// 统一的最终处理：添加标点并回调
+    private func finalizeAndComplete(rawText: String, completion: @escaping (String?) -> Void) {
+        guard !rawText.isEmpty else {
+            print(">>> 最终识别结果: （无）")
+            completion(nil)
+            return
         }
-        print(">>> 最终识别结果: \(finalText ?? "（无）")")
+
+        let finalText = punctuator?.addPunctuation(text: rawText) ?? rawText
+        print(">>> 原始文本: \(rawText)")
+        print(">>> 标点处理后: \(finalText)")
         completion(finalText)
     }
 

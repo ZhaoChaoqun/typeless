@@ -7,8 +7,11 @@ class ModelDownloadManager: ObservableObject {
     @Published var selectedModel: ASRModelType
     @Published var funasrDownloaded: Bool = false
     @Published var streamingParaformerDownloaded: Bool = false
+    @Published var punctuationDownloaded: Bool = false
     @Published var isDownloading: Bool = false
     @Published var downloadProgress: String = ""
+    @Published var isPunctuationDownloading: Bool = false
+    @Published var punctuationDownloadProgress: String = ""
 
     init() {
         // 从 UserDefaults 读取选择的模型
@@ -24,6 +27,7 @@ class ModelDownloadManager: ObservableObject {
     func checkModelsExist() {
         funasrDownloaded = SherpaOnnxManager.shared.isFunASRModelDownloaded()
         streamingParaformerDownloaded = SherpaOnnxManager.shared.isStreamingParaformerDownloaded()
+        punctuationDownloaded = SherpaOnnxManager.shared.isPunctuationModelDownloaded()
     }
 
     /// 兼容旧接口
@@ -84,6 +88,30 @@ class ModelDownloadManager: ObservableObject {
             await RecordingManager.shared.switchModel(to: model)
         }
     }
+
+    /// 下载标点模型
+    func downloadPunctuationModel() {
+        guard !isPunctuationDownloading else { return }
+
+        isPunctuationDownloading = true
+        punctuationDownloadProgress = "正在下载标点模型..."
+
+        SherpaOnnxManager.shared.downloadPunctuationModel(progress: { [weak self] progressText in
+            DispatchQueue.main.async {
+                self?.punctuationDownloadProgress = progressText
+            }
+        }, completion: { [weak self] success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self?.punctuationDownloaded = true
+                    self?.punctuationDownloadProgress = "下载完成"
+                } else {
+                    self?.punctuationDownloadProgress = error ?? "下载失败"
+                }
+                self?.isPunctuationDownloading = false
+            }
+        })
+    }
 }
 
 /// 设置视图
@@ -109,9 +137,11 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+            } header: {
+                Text("语音识别模型")
+            }
 
-                Divider()
-
+            Section {
                 // 当前选中模型的状态
                 modelStatusView(for: downloadManager.selectedModel)
 
@@ -120,10 +150,21 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+
+                // 标点模型状态（仅 Streaming Paraformer 需要）
+                if downloadManager.selectedModel == .streamingParaformer {
+                    punctuationModelStatusView()
+
+                    if downloadManager.isPunctuationDownloading {
+                        Text(downloadManager.punctuationDownloadProgress)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             } header: {
-                Text("语音识别模型")
+                Text("模型状态")
             } footer: {
-                Text("FunASR Nano 约 179MB，Streaming Paraformer 约 216MB。切换模型后需要下载对应的模型文件。")
+                Text("FunASR Nano 约 179MB，Streaming Paraformer 约 216MB + 标点模型 62MB。")
             }
 
             Section("快捷键") {
@@ -155,7 +196,7 @@ struct SettingsView: View {
 
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("模型状态")
+                Text(model == .funasrNano ? "FunASR Nano" : "Streaming Paraformer")
                     .fontWeight(.medium)
                 if model.needsVAD {
                     Text("需要额外下载 VAD 模型")
@@ -176,6 +217,36 @@ struct SettingsView: View {
             } else {
                 Button("下载") {
                     downloadManager.downloadModel(model)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func punctuationModelStatusView() -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("CT-Transformer 标点模型")
+                    .fontWeight(.medium)
+                Text("自动为识别结果添加标点符号")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if downloadManager.punctuationDownloaded {
+                Label("已下载", systemImage: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+            } else if downloadManager.isPunctuationDownloading {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else {
+                Button("下载") {
+                    downloadManager.downloadPunctuationModel()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
