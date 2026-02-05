@@ -152,8 +152,8 @@ class RecordingManager {
         case .funasrNano:
             vad?.reset()
         case .streamingParaformer:
-            // 确保使用新的 stream（防止上次 inputFinished 后状态异常）
-            onlineRecognizer?.recreateStream()
+            // reset() 已在 stopRecording 中调用，无需额外操作
+            break
         }
 
         // 创建音频引擎
@@ -256,16 +256,9 @@ class RecordingManager {
         let text = recognizer.getResult()
         if !text.isEmpty {
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.accumulatedText = text
-                self.onPartialResult?(text)
+                self?.accumulatedText = text
+                self?.onPartialResult?(text)
             }
-        }
-
-        // 检查端点（句子结束）
-        if recognizer.isEndpoint() {
-            print(">>> 检测到端点")
-            // 可以在这里添加标点逻辑
         }
     }
 
@@ -398,40 +391,32 @@ class RecordingManager {
 
     /// 停止 Streaming Paraformer 录音
     private func stopRecordingStreaming(completion: @escaping (String?) -> Void) {
-        // 处理剩余的解码
-        recognitionQueue.async { [weak self] in
-            guard let self = self,
-                  let recognizer = self.onlineRecognizer else {
-                DispatchQueue.main.async { completion(nil) }
-                return
-            }
-
-            // 通知输入结束（必须在 recognitionQueue 中调用，确保之前的音频都已送入）
-            recognizer.inputFinished()
-
-            // 继续解码直到完成
-            while recognizer.isReady() {
-                recognizer.decode()
-            }
-
-            // 再次尝试解码（inputFinished 后可能产生新的可解码帧）
-            recognizer.decode()
-
-            // 获取最终结果
-            let text = recognizer.getResult()
-
-            // 重新创建流（inputFinished 后必须创建新流才能继续使用）
-            recognizer.recreateStream()
-
-            DispatchQueue.main.async {
-                var finalText: String? = nil
-                if !text.isEmpty {
-                    finalText = self.addFinalPunctuation(text)
-                }
-                print(">>> 最终识别结果: \(finalText ?? "（无）")")
-                completion(finalText)
-            }
+        guard let recognizer = onlineRecognizer else {
+            completion(nil)
+            return
         }
+
+        // 注入 0.3 秒静音（4800 samples @ 16kHz）触发剩余帧解码
+        let silencePadding = [Float](repeating: 0.0, count: 4800)
+        recognizer.acceptWaveform(samples: silencePadding)
+
+        // 解码所有剩余帧
+        while recognizer.isReady() {
+            recognizer.decode()
+        }
+
+        // 获取最终结果
+        let text = recognizer.getResult()
+
+        // 重置流状态（为下次录音准备）
+        recognizer.reset()
+
+        var finalText: String? = nil
+        if !text.isEmpty {
+            finalText = addFinalPunctuation(text)
+        }
+        print(">>> 最终识别结果: \(finalText ?? "（无）")")
+        completion(finalText)
     }
 
     var isInitialized: Bool {
