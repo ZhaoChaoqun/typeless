@@ -1,16 +1,73 @@
 import Foundation
 
+/// ASR 模型类型
+enum ASRModelType: String, CaseIterable, Identifiable {
+    case funasrNano = "funasr-nano"
+    case streamingParaformer = "streaming-paraformer"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .funasrNano:
+            return "SenseVoice FunASR Nano"
+        case .streamingParaformer:
+            return "Streaming Paraformer"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .funasrNano:
+            return "中英文混合识别，支持方言，需要 VAD 分段"
+        case .streamingParaformer:
+            return "原生流式识别，中英文混合，无需 VAD"
+        }
+    }
+
+    var folderName: String {
+        switch self {
+        case .funasrNano:
+            return "sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17"
+        case .streamingParaformer:
+            return "sherpa-onnx-streaming-paraformer-bilingual-zh-en"
+        }
+    }
+
+    var needsVAD: Bool {
+        switch self {
+        case .funasrNano:
+            return true
+        case .streamingParaformer:
+            return false
+        }
+    }
+
+    var modelSize: String {
+        switch self {
+        case .funasrNano:
+            return "~179MB"
+        case .streamingParaformer:
+            return "~216MB"
+        }
+    }
+}
+
 /// 下载源
 enum DownloadSource: CaseIterable {
     case modelScope
     case github
 
-    var url: String {
-        switch self {
-        case .modelScope:
+    func url(for model: ASRModelType) -> String {
+        switch (self, model) {
+        case (.modelScope, .funasrNano):
             return "https://modelscope.cn/models/zhaochaoqun/sherpa-onnx-asr-models/resolve/master/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2"
-        case .github:
+        case (.github, .funasrNano):
             return "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2"
+        case (.modelScope, .streamingParaformer):
+            return "https://modelscope.cn/models/zhaochaoqun/sherpa-onnx-asr-models/resolve/master/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2"
+        case (.github, .streamingParaformer):
+            return "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2"
         }
     }
 
@@ -22,7 +79,7 @@ enum DownloadSource: CaseIterable {
     }
 }
 
-/// FunASR Nano 模型管理器
+/// 模型管理器
 class SherpaOnnxManager: NSObject {
     static let shared = SherpaOnnxManager()
 
@@ -38,6 +95,8 @@ class SherpaOnnxManager: NSObject {
     private var currentSource: DownloadSource?
     /// 备用下载源
     private var fallbackSource: DownloadSource?
+    /// 当前下载的模型类型
+    private var currentDownloadingModel: ASRModelType?
 
     /// 模型存储根目录
     private let modelsDirectory: URL = {
@@ -47,14 +106,77 @@ class SherpaOnnxManager: NSObject {
         return appSupportPath
     }()
 
-    /// 模型配置
-    static let modelId = "sense-voice-funasr-nano"
-    static let folderName = "sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17"
-    static let displayName = "SenseVoice FunASR Nano"
-
     /// VAD 模型配置
     static let vadModelName = "silero_vad.onnx"
     static let vadDownloadURL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+
+    // MARK: - FunASR Nano 模型路径
+
+    /// 获取 FunASR Nano 模型路径
+    func getFunASRModelPath() -> (modelPath: String, tokensPath: String)? {
+        let modelDir = modelsDirectory.appendingPathComponent(ASRModelType.funasrNano.folderName)
+        let modelPath = modelDir.appendingPathComponent("model.int8.onnx")
+        let tokensPath = modelDir.appendingPathComponent("tokens.txt")
+
+        guard FileManager.default.fileExists(atPath: modelPath.path),
+              FileManager.default.fileExists(atPath: tokensPath.path) else {
+            return nil
+        }
+
+        return (modelPath.path, tokensPath.path)
+    }
+
+    /// 检查 FunASR Nano 模型是否已下载
+    func isFunASRModelDownloaded() -> Bool {
+        return getFunASRModelPath() != nil
+    }
+
+    // MARK: - Streaming Paraformer 模型路径
+
+    /// 获取 Streaming Paraformer 模型路径
+    func getStreamingParaformerPath() -> (encoderPath: String, decoderPath: String, tokensPath: String)? {
+        let modelDir = modelsDirectory.appendingPathComponent(ASRModelType.streamingParaformer.folderName)
+        let encoderPath = modelDir.appendingPathComponent("encoder.int8.onnx")
+        let decoderPath = modelDir.appendingPathComponent("decoder.int8.onnx")
+        let tokensPath = modelDir.appendingPathComponent("tokens.txt")
+
+        guard FileManager.default.fileExists(atPath: encoderPath.path),
+              FileManager.default.fileExists(atPath: decoderPath.path),
+              FileManager.default.fileExists(atPath: tokensPath.path) else {
+            return nil
+        }
+
+        return (encoderPath.path, decoderPath.path, tokensPath.path)
+    }
+
+    /// 检查 Streaming Paraformer 模型是否已下载
+    func isStreamingParaformerDownloaded() -> Bool {
+        return getStreamingParaformerPath() != nil
+    }
+
+    // MARK: - 通用模型检查
+
+    /// 检查指定模型是否已下载
+    func isModelDownloaded(_ modelType: ASRModelType) -> Bool {
+        switch modelType {
+        case .funasrNano:
+            return isFunASRModelDownloaded()
+        case .streamingParaformer:
+            return isStreamingParaformerDownloaded()
+        }
+    }
+
+    /// 兼容旧接口：获取 FunASR 模型路径
+    func getModelPath() -> (modelPath: String, tokensPath: String)? {
+        return getFunASRModelPath()
+    }
+
+    /// 兼容旧接口：检查模型是否已下载
+    func isModelDownloaded() -> Bool {
+        return isFunASRModelDownloaded()
+    }
+
+    // MARK: - VAD 模型
 
     /// 获取 VAD 模型路径
     func getVADModelPath() -> String? {
@@ -100,7 +222,6 @@ class SherpaOnnxManager: NSObject {
                 }
 
                 do {
-                    // 移动到目标位置
                     if FileManager.default.fileExists(atPath: destPath.path) {
                         try FileManager.default.removeItem(at: destPath)
                     }
@@ -115,27 +236,10 @@ class SherpaOnnxManager: NSObject {
         task.resume()
     }
 
-    /// 获取模型路径
-    func getModelPath() -> (modelPath: String, tokensPath: String)? {
-        let modelDir = modelsDirectory.appendingPathComponent(Self.folderName)
-        let modelPath = modelDir.appendingPathComponent("model.int8.onnx")
-        let tokensPath = modelDir.appendingPathComponent("tokens.txt")
-
-        guard FileManager.default.fileExists(atPath: modelPath.path),
-              FileManager.default.fileExists(atPath: tokensPath.path) else {
-            return nil
-        }
-
-        return (modelPath.path, tokensPath.path)
-    }
-
-    /// 检查模型是否已下载
-    func isModelDownloaded() -> Bool {
-        return getModelPath() != nil
-    }
+    // MARK: - 下载功能
 
     /// 选择最快的下载源
-    private func selectFastestSource() async -> DownloadSource {
+    private func selectFastestSource(for modelType: ASRModelType) async -> DownloadSource {
         print("[SherpaOnnx] 正在检测最快下载源...")
 
         return await withTaskGroup(of: (DownloadSource, Bool).self) { group in
@@ -143,7 +247,7 @@ class SherpaOnnxManager: NSObject {
 
             for source in DownloadSource.allCases {
                 group.addTask {
-                    guard let url = URL(string: source.url) else {
+                    guard let url = URL(string: source.url(for: modelType)) else {
                         return (source, false)
                     }
                     var request = URLRequest(url: url, timeoutInterval: timeout)
@@ -178,20 +282,19 @@ class SherpaOnnxManager: NSObject {
         }
     }
 
-    /// 下载模型
-    func downloadModel(progress: @escaping (String) -> Void, completion: @escaping (Bool, String?) -> Void) {
+    /// 下载指定模型
+    func downloadModel(_ modelType: ASRModelType, progress: @escaping (String) -> Void, completion: @escaping (Bool, String?) -> Void) {
         Task {
-            // 1. 检测最快源
             await MainActor.run {
                 progress("正在检测最佳下载源...")
             }
 
-            let primarySource = await selectFastestSource()
+            let primarySource = await selectFastestSource(for: modelType)
             let fallback: DownloadSource = primarySource == .modelScope ? .github : .modelScope
 
-            // 2. 开始下载
             await MainActor.run {
                 self.startDownload(
+                    modelType: modelType,
                     from: primarySource,
                     fallback: fallback,
                     progress: progress,
@@ -201,25 +304,32 @@ class SherpaOnnxManager: NSObject {
         }
     }
 
+    /// 兼容旧接口：下载 FunASR 模型
+    func downloadModel(progress: @escaping (String) -> Void, completion: @escaping (Bool, String?) -> Void) {
+        downloadModel(.funasrNano, progress: progress, completion: completion)
+    }
+
     /// 从指定源开始下载
     private func startDownload(
+        modelType: ASRModelType,
         from source: DownloadSource,
         fallback: DownloadSource,
         progress: @escaping (String) -> Void,
         completion: @escaping (Bool, String?) -> Void
     ) {
-        guard let url = URL(string: source.url) else {
+        guard let url = URL(string: source.url(for: modelType)) else {
             completion(false, "无效的下载地址")
             return
         }
 
         self.progressCallback = progress
         self.completionCallback = completion
-        self.currentModelName = Self.displayName
+        self.currentModelName = modelType.displayName
         self.currentSource = source
         self.fallbackSource = fallback
+        self.currentDownloadingModel = modelType
 
-        progress("正在从 \(source.displayName) 下载 \(Self.displayName)...")
+        progress("正在从 \(source.displayName) 下载 \(modelType.displayName)...")
 
         let config = URLSessionConfiguration.default
         let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
@@ -293,12 +403,13 @@ extension SherpaOnnxManager: URLSessionDownloadDelegate {
         if let error = error {
             // 如果有备用源，尝试回退
             if let fallback = fallbackSource,
+               let modelType = currentDownloadingModel,
                let progress = progressCallback,
                let completion = completionCallback {
                 print("[SherpaOnnx] 下载失败，尝试备用源: \(fallback.displayName)")
                 progress("下载失败，正在尝试备用源...")
                 fallbackSource = nil  // 清除，避免无限重试
-                startDownload(from: fallback, fallback: fallback, progress: progress, completion: completion)
+                startDownload(modelType: modelType, from: fallback, fallback: fallback, progress: progress, completion: completion)
                 return
             }
 
@@ -312,6 +423,7 @@ extension SherpaOnnxManager: URLSessionDownloadDelegate {
         currentDownloadTask = nil
         currentSource = nil
         fallbackSource = nil
+        currentDownloadingModel = nil
         progressCallback = nil
         completionCallback = nil
     }

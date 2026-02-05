@@ -6,10 +6,25 @@ class RecordingManager {
     static let shared = RecordingManager()
 
     private var audioEngine: AVAudioEngine?
-    private var recognizer: SherpaOnnxRecognizer?
+    private var offlineRecognizer: SherpaOnnxRecognizer?       // FunASR Nano
+    private var onlineRecognizer: SherpaOnnxOnlineRecognizer?  // Streaming Paraformer
     private var vad: SherpaOnnxVAD?
     private var isRecording = false
     private var isInitializing = false
+
+    /// 当前选择的 ASR 模型
+    private(set) var currentModel: ASRModelType {
+        get {
+            if let rawValue = UserDefaults.standard.string(forKey: "selectedASRModel"),
+               let model = ASRModelType(rawValue: rawValue) {
+                return model
+            }
+            return .funasrNano
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "selectedASRModel")
+        }
+    }
 
     /// 部分识别结果回调
     var onPartialResult: ((String) -> Void)?
@@ -29,29 +44,74 @@ class RecordingManager {
         Task { await initializeRecognizer() }
     }
 
+    /// 切换 ASR 模型
+    func switchModel(to model: ASRModelType) async {
+        guard model != currentModel else { return }
+        currentModel = model
+        await initializeRecognizer()
+    }
+
     private func initializeRecognizer() async {
         guard !isInitializing else { return }
         isInitializing = true
         defer { isInitializing = false }
 
-        print("========== 开始加载语音识别模型 ==========")
+        print("========== 开始加载语音识别模型 (\(currentModel.displayName)) ==========")
 
-        guard SherpaOnnxManager.shared.isModelDownloaded(),
-              let paths = SherpaOnnxManager.shared.getModelPath() else {
-            print("⚠️ 模型未下载")
+        // 清理旧的识别器
+        offlineRecognizer = nil
+        onlineRecognizer = nil
+        vad = nil
+
+        switch currentModel {
+        case .funasrNano:
+            await initializeFunASR()
+        case .streamingParaformer:
+            await initializeStreamingParaformer()
+        }
+    }
+
+    /// 初始化 FunASR Nano（需要 VAD）
+    private func initializeFunASR() async {
+        guard SherpaOnnxManager.shared.isFunASRModelDownloaded(),
+              let paths = SherpaOnnxManager.shared.getFunASRModelPath() else {
+            print("⚠️ FunASR Nano 模型未下载")
             return
         }
 
-        recognizer = SherpaOnnxRecognizer(modelPath: paths.modelPath, tokensPath: paths.tokensPath)
+        offlineRecognizer = SherpaOnnxRecognizer(modelPath: paths.modelPath, tokensPath: paths.tokensPath)
 
-        if recognizer != nil {
-            print("========== 模型加载成功 ==========")
+        if offlineRecognizer != nil {
+            print("========== FunASR Nano 模型加载成功 ==========")
         } else {
-            print("========== 模型加载失败 ==========")
+            print("========== FunASR Nano 模型加载失败 ==========")
+            return
         }
 
-        // 初始化 VAD
+        // 初始化 VAD（FunASR 需要）
         await initializeVAD()
+    }
+
+    /// 初始化 Streaming Paraformer（无需 VAD）
+    private func initializeStreamingParaformer() async {
+        guard SherpaOnnxManager.shared.isStreamingParaformerDownloaded(),
+              let paths = SherpaOnnxManager.shared.getStreamingParaformerPath() else {
+            print("⚠️ Streaming Paraformer 模型未下载")
+            return
+        }
+
+        onlineRecognizer = SherpaOnnxOnlineRecognizer(
+            encoderPath: paths.encoderPath,
+            decoderPath: paths.decoderPath,
+            tokensPath: paths.tokensPath
+        )
+
+        if onlineRecognizer != nil {
+            print("========== Streaming Paraformer 模型加载成功 ==========")
+        } else {
+            print("========== Streaming Paraformer 模型加载失败 ==========")
+        }
+        // Streaming Paraformer 不需要 VAD
     }
 
     private func initializeVAD() async {
@@ -86,7 +146,14 @@ class RecordingManager {
         // 重置状态
         accumulatedText = ""
         lastSegmentEndTime = 0
-        vad?.reset()
+
+        // 根据模型类型重置
+        switch currentModel {
+        case .funasrNano:
+            vad?.reset()
+        case .streamingParaformer:
+            onlineRecognizer?.reset()
+        }
 
         // 创建音频引擎
         audioEngine = AVAudioEngine()
@@ -116,15 +183,13 @@ class RecordingManager {
         do {
             try audioEngine.start()
             isRecording = true
-            print("开始流式录音")
+            print("开始流式录音 (\(currentModel.displayName))")
         } catch {
             print("启动音频引擎失败: \(error)")
         }
     }
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, targetFormat: AVAudioFormat) {
-        guard let vad = vad else { return }
-
         // 计算输出缓冲区大小
         let ratio = targetFormat.sampleRate / buffer.format.sampleRate
         let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
@@ -148,6 +213,19 @@ class RecordingManager {
         guard let floatData = outputBuffer.floatChannelData else { return }
         let samples = Array(UnsafeBufferPointer(start: floatData[0], count: Int(outputBuffer.frameLength)))
 
+        // 根据模型类型处理
+        switch currentModel {
+        case .funasrNano:
+            processWithVAD(samples: samples)
+        case .streamingParaformer:
+            processWithStreaming(samples: samples)
+        }
+    }
+
+    /// 使用 VAD 分段处理（FunASR Nano）
+    private func processWithVAD(samples: [Float]) {
+        guard let vad = vad else { return }
+
         // 送入 VAD
         vad.acceptWaveform(samples: samples)
 
@@ -161,8 +239,37 @@ class RecordingManager {
         }
     }
 
+    /// 使用流式识别（Streaming Paraformer）
+    private func processWithStreaming(samples: [Float]) {
+        guard let recognizer = onlineRecognizer else { return }
+
+        // 送入流式识别器
+        recognizer.acceptWaveform(samples: samples)
+
+        // 检查是否可以解码
+        while recognizer.isReady() {
+            recognizer.decode()
+        }
+
+        // 获取识别结果
+        let text = recognizer.getResult()
+        if !text.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.accumulatedText = text
+                self.onPartialResult?(text)
+            }
+        }
+
+        // 检查端点（句子结束）
+        if recognizer.isEndpoint() {
+            print(">>> 检测到端点")
+            // 可以在这里添加标点逻辑
+        }
+    }
+
     private func transcribeSegment(_ segment: SpeechSegment) {
-        guard let recognizer = recognizer else { return }
+        guard let recognizer = offlineRecognizer else { return }
 
         if let text = recognizer.transcribe(samples: segment.samples) {
             DispatchQueue.main.async { [weak self] in
@@ -241,6 +348,17 @@ class RecordingManager {
         isRecording = false
         print("停止录音")
 
+        // 根据模型类型处理
+        switch currentModel {
+        case .funasrNano:
+            stopRecordingFunASR(completion: completion)
+        case .streamingParaformer:
+            stopRecordingStreaming(completion: completion)
+        }
+    }
+
+    /// 停止 FunASR 录音（处理 VAD 剩余音频）
+    private func stopRecordingFunASR(completion: @escaping (String?) -> Void) {
         // 刷新 VAD，处理剩余音频
         vad?.flush()
 
@@ -253,7 +371,7 @@ class RecordingManager {
 
             while self.vad?.hasSegment() == true {
                 if let segment = self.vad?.popSegmentWithTime() {
-                    if let text = self.recognizer?.transcribe(samples: segment.samples) {
+                    if let text = self.offlineRecognizer?.transcribe(samples: segment.samples) {
                         DispatchQueue.main.sync {
                             // 计算停顿时长
                             let pauseDuration = self.lastSegmentEndTime > 0 ? segment.startTime - self.lastSegmentEndTime : 0
@@ -277,13 +395,51 @@ class RecordingManager {
         }
     }
 
+    /// 停止 Streaming Paraformer 录音
+    private func stopRecordingStreaming(completion: @escaping (String?) -> Void) {
+        // 通知输入结束
+        onlineRecognizer?.inputFinished()
+
+        // 处理剩余的解码
+        recognitionQueue.async { [weak self] in
+            guard let self = self,
+                  let recognizer = self.onlineRecognizer else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            // 继续解码直到完成
+            while recognizer.isReady() {
+                recognizer.decode()
+            }
+
+            // 获取最终结果
+            let text = recognizer.getResult()
+
+            DispatchQueue.main.async {
+                var finalText: String? = nil
+                if !text.isEmpty {
+                    finalText = self.addFinalPunctuation(text)
+                }
+                print(">>> 最终识别结果: \(finalText ?? "（无）")")
+                completion(finalText)
+            }
+        }
+    }
+
     var isInitialized: Bool {
-        return recognizer != nil
+        switch currentModel {
+        case .funasrNano:
+            return offlineRecognizer != nil
+        case .streamingParaformer:
+            return onlineRecognizer != nil
+        }
     }
 
     /// 重新加载模型（下载完成后调用）
     func reloadModel() {
-        recognizer = nil
+        offlineRecognizer = nil
+        onlineRecognizer = nil
         vad = nil
         Task { await initializeRecognizer() }
     }

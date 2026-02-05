@@ -4,16 +4,36 @@ import SwiftUI
 class ModelDownloadManager: ObservableObject {
     static let shared = ModelDownloadManager()
 
-    @Published var isDownloaded: Bool = false
+    @Published var selectedModel: ASRModelType
+    @Published var funasrDownloaded: Bool = false
+    @Published var streamingParaformerDownloaded: Bool = false
     @Published var isDownloading: Bool = false
     @Published var downloadProgress: String = ""
 
     init() {
-        checkModelExists()
+        // 从 UserDefaults 读取选择的模型
+        if let rawValue = UserDefaults.standard.string(forKey: "selectedASRModel"),
+           let model = ASRModelType(rawValue: rawValue) {
+            selectedModel = model
+        } else {
+            selectedModel = .funasrNano
+        }
+        checkModelsExist()
     }
 
-    func checkModelExists() {
-        isDownloaded = SherpaOnnxManager.shared.isModelDownloaded()
+    func checkModelsExist() {
+        funasrDownloaded = SherpaOnnxManager.shared.isFunASRModelDownloaded()
+        streamingParaformerDownloaded = SherpaOnnxManager.shared.isStreamingParaformerDownloaded()
+    }
+
+    /// 兼容旧接口
+    var isDownloaded: Bool {
+        switch selectedModel {
+        case .funasrNano:
+            return funasrDownloaded
+        case .streamingParaformer:
+            return streamingParaformerDownloaded
+        }
     }
 
     private func notifyDownloadProgress(_ progress: String) {
@@ -24,14 +44,14 @@ class ModelDownloadManager: ObservableObject {
         )
     }
 
-    func downloadModel() {
+    func downloadModel(_ modelType: ASRModelType) {
         guard !isDownloading else { return }
 
         isDownloading = true
         downloadProgress = "正在下载..."
         notifyDownloadProgress(downloadProgress)
 
-        SherpaOnnxManager.shared.downloadModel(progress: { [weak self] progressText in
+        SherpaOnnxManager.shared.downloadModel(modelType, progress: { [weak self] progressText in
             DispatchQueue.main.async {
                 self?.downloadProgress = progressText
                 self?.notifyDownloadProgress(progressText)
@@ -39,7 +59,7 @@ class ModelDownloadManager: ObservableObject {
         }, completion: { [weak self] success, error in
             DispatchQueue.main.async {
                 if success {
-                    self?.isDownloaded = true
+                    self?.checkModelsExist()
                     self?.downloadProgress = "下载完成"
                     self?.notifyDownloadProgress("下载完成")
                     RecordingManager.shared.reloadModel()
@@ -50,6 +70,20 @@ class ModelDownloadManager: ObservableObject {
             }
         })
     }
+
+    /// 兼容旧接口
+    func downloadModel() {
+        downloadModel(selectedModel)
+    }
+
+    /// 切换模型
+    func switchModel(to model: ASRModelType) {
+        selectedModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "selectedASRModel")
+        Task {
+            await RecordingManager.shared.switchModel(to: model)
+        }
+    }
 }
 
 /// 设置视图
@@ -59,32 +93,27 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SenseVoice FunASR Nano")
-                            .fontWeight(.medium)
-                        Text("中英文混合识别，支持方言")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    if downloadManager.isDownloaded {
-                        Label("已下载", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                    } else if downloadManager.isDownloading {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else {
-                        Button("下载") {
-                            downloadManager.downloadModel()
+                // 模型选择器
+                Picker("识别引擎", selection: Binding(
+                    get: { downloadManager.selectedModel },
+                    set: { downloadManager.switchModel(to: $0) }
+                )) {
+                    ForEach(ASRModelType.allCases) { model in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.displayName)
+                            Text(model.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        .tag(model)
                     }
                 }
+                .pickerStyle(.radioGroup)
+
+                Divider()
+
+                // 当前选中模型的状态
+                modelStatusView(for: downloadManager.selectedModel)
 
                 if downloadManager.isDownloading {
                     Text(downloadManager.downloadProgress)
@@ -94,7 +123,7 @@ struct SettingsView: View {
             } header: {
                 Text("语音识别模型")
             } footer: {
-                Text("模型大小约 179MB，首次使用需要下载。")
+                Text("FunASR Nano 约 179MB，Streaming Paraformer 约 216MB。切换模型后需要下载对应的模型文件。")
             }
 
             Section("快捷键") {
@@ -117,7 +146,41 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 380)
+        .frame(width: 420, height: 480)
+    }
+
+    @ViewBuilder
+    private func modelStatusView(for model: ASRModelType) -> some View {
+        let isDownloaded = model == .funasrNano ? downloadManager.funasrDownloaded : downloadManager.streamingParaformerDownloaded
+
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("模型状态")
+                    .fontWeight(.medium)
+                if model.needsVAD {
+                    Text("需要额外下载 VAD 模型")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if isDownloaded {
+                Label("已下载", systemImage: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+            } else if downloadManager.isDownloading {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else {
+                Button("下载") {
+                    downloadManager.downloadModel(model)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
     }
 }
 
